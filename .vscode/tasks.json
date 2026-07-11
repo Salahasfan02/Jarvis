@@ -1,0 +1,46 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Install: backend dependencies",
+      "type": "shell",
+      "command": "python3 -m venv .venv && .venv/bin/pip install -r requirements.txt",
+      "options": { "cwd": "${workspaceFolder}/backend" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Install: frontend dependencies",
+      "type": "shell",
+      "command": "npm install",
+      "options": { "cwd": "${workspaceFolder}/frontend" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Install: everything",
+      "dependsOn": ["Install: backend dependencies", "Install: frontend dependencies"],
+      "problemMatcher": []
+    },
+    {
+      "label": "Start: Ollama",
+      "type": "shell",
+      "command": "pgrep -x ollama >/dev/null || ollama serve",
+      "isBackground": true,
+      "problemMatcher": []
+    },
+    {
+      "label": "Start: frontend (Vite)",
+      "type": "shell",
+      "command": "npm run dev",
+      "options": { "cwd": "${workspaceFolder}/frontend" },
+      "isBackground": true,
+      "problemMatcher": {
+        "pattern": { "regexp": "." },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": ".*",
+          "endsPattern": "ready in|Local:"
+        }
+      }
+    }
+  ]
+}

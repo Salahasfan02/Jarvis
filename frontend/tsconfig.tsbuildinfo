@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/components/chatview.tsx","./src/components/core.tsx","./src/components/sidebar.tsx","./src/lib/api.ts","./src/lib/voice.ts","./src/lib/ws.ts","./src/pages/dashboardpage.tsx","./src/pages/devpage.tsx","./src/pages/memorypage.tsx","./src/pages/registrypage.tsx","./src/pages/settingspage.tsx"],"version":"5.9.3"}

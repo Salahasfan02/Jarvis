@@ -1,0 +1,58 @@
+import { WS_URL } from "./api";
+
+export type ChatEvent =
+  | { type: "conversation"; conversation_id: string }
+  | { type: "agent"; agent: { id: string; name: string } }
+  | { type: "memory"; recalled: { id: string; content: string }[] }
+  | { type: "token"; content: string }
+  | { type: "tool_start"; name: string; arguments: any }
+  | { type: "tool_result"; name: string; result: string; denied?: boolean }
+  | { type: "confirm_request"; id: string; tool: string; arguments: any; risk: string }
+  | { type: "done"; content: string; message_id: string }
+  | { type: "title"; title: string }
+  | { type: "stopped" }
+  | { type: "error"; message: string };
+
+/** Auto-reconnecting chat socket. */
+export class ChatSocket {
+  private ws: WebSocket | null = null;
+  private queue: string[] = [];
+  onEvent: (e: ChatEvent) => void = () => {};
+  onStatus: (connected: boolean) => void = () => {};
+
+  connect() {
+    if (this.ws && this.ws.readyState <= WebSocket.OPEN) return;
+    this.ws = new WebSocket(WS_URL);
+    this.ws.onopen = () => {
+      this.onStatus(true);
+      for (const m of this.queue.splice(0)) this.ws!.send(m);
+    };
+    this.ws.onmessage = (ev) => this.onEvent(JSON.parse(ev.data));
+    this.ws.onclose = () => {
+      this.onStatus(false);
+      setTimeout(() => this.connect(), 1500);
+    };
+    this.ws.onerror = () => this.ws?.close();
+  }
+
+  private send(obj: unknown) {
+    const raw = JSON.stringify(obj);
+    if (this.ws?.readyState === WebSocket.OPEN) this.ws.send(raw);
+    else {
+      this.queue.push(raw);
+      this.connect();
+    }
+  }
+
+  chat(conversationId: string | null, content: string) {
+    this.send({ type: "chat", conversation_id: conversationId, content });
+  }
+
+  confirm(id: string, approved: boolean, tool?: string, remember?: boolean) {
+    this.send({ type: "confirm", id, approved, tool, remember });
+  }
+
+  stop() {
+    this.send({ type: "stop" });
+  }
+}
