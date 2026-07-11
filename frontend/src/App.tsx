@@ -55,7 +55,7 @@ export default function App() {
     streamBuf.current = "";
     setStreaming(null);
     setInput("");
-    setPage("chat");
+    // Deliberately no navigation: talking from the Core stays on the Core.
     socket.chat(target, content);
   }, [socket]);
 
@@ -153,6 +153,7 @@ export default function App() {
       onInterim: setInterim,
       onWake: () => stopSpeaking(),
       onStateChange: setVoiceState,
+      onPermissionDenied: () => setWakeWanted(false),
     });
   }, [send]);
 
@@ -164,6 +165,36 @@ export default function App() {
       });
     }
   }, [voice, settings]);
+
+  // Always-on wake word: as long as voice is enabled and nothing else is
+  // using the microphone, keep listening for "Jarvis…" — so speaking the
+  // wake word on the Core works without touching anything.
+  const [wakeWanted, setWakeWanted] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (wakeWanted === null && settings) {
+      setWakeWanted(settings.voice?.enabled !== false && speechSupported);
+    }
+  }, [settings, wakeWanted]);
+  useEffect(() => {
+    if (!voice || !wakeWanted) return;
+    if (voiceState === "idle") {
+      const t = setTimeout(() => {
+        try { voice.startWakeWord(); } catch { /* mic busy or denied */ }
+      }, 400);
+      return () => clearTimeout(t);
+    }
+  }, [voice, wakeWanted, voiceState]);
+
+  const toggleWake = () => {
+    if (voiceState === "waiting-wake" || wakeWanted) {
+      voice?.stop();
+      setWakeWanted(false);
+      patchSettings({ voice: { wake_word_enabled: false } });
+    } else {
+      setWakeWanted(true);
+      patchSettings({ voice: { wake_word_enabled: true } });
+    }
+  };
 
   // ---- theme ----
   useEffect(() => {
@@ -314,9 +345,21 @@ export default function App() {
         {page === "core" && (
           <DashboardPage
             busy={busy}
-            listening={voiceState !== "idle"}
+            listening={voiceState === "listening"}
             assistantName={settings?.assistant?.name ?? "Jarvis"}
             onCommand={(text) => send(text)}
+            lastUser={[...messages].reverse().find((m) => m.role === "user")?.content ?? null}
+            reply={busy ? streaming
+                        : [...messages].reverse().find((m) => m.role === "assistant")?.content ?? null}
+            chips={chips}
+            interim={interim}
+            voiceState={voiceState}
+            wakeWord={(settings?.assistant?.wake_words ?? ["jarvis"])[0]}
+            wakeActive={voiceState === "waiting-wake"}
+            voiceSupported={speechSupported && settings?.voice?.enabled !== false}
+            onToggleWake={toggleWake}
+            onPushToTalk={() =>
+              voiceState === "listening" ? voice?.stop() : voice?.startListening()}
           />
         )}
         {page === "settings" && <SettingsPage settings={settings} onPatch={patchSettings} />}

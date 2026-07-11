@@ -18,6 +18,7 @@ export interface VoiceOptions {
   onInterim: (text: string) => void;      // live partial text
   onWake: () => void;
   onStateChange: (state: "idle" | "listening" | "waiting-wake") => void;
+  onPermissionDenied?: () => void;        // mic blocked — stop auto-restarting
 }
 
 export class VoiceEngine {
@@ -115,9 +116,10 @@ export class VoiceEngine {
       }
     };
     rec.onerror = (e: any) => {
-      if (e.error === "not-allowed") {
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") {
         this.mode = "off";
         this.opts.onStateChange("idle");
+        this.opts.onPermissionDenied?.();
       }
     };
     this.rec = rec;

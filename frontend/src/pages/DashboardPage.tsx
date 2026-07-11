@@ -15,17 +15,35 @@ function Meter({ label, value, detail }: { label: string; value: number; detail?
   );
 }
 
+import { ToolChipInfo } from "../components/ChatView";
+
 export function DashboardPage(props: {
   busy: boolean;
   listening: boolean;
   assistantName: string;
   onCommand: (text: string) => void;
+  lastUser: string | null;
+  reply: string | null;
+  chips: ToolChipInfo[];
+  interim: string;
+  voiceState: "idle" | "listening" | "waiting-wake";
+  wakeWord: string;
+  wakeActive: boolean;
+  voiceSupported: boolean;
+  onToggleWake: () => void;
+  onPushToTalk: () => void;
 }) {
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [ctx, setCtx] = useState<any>(null);
   const [speaking, setSpeaking] = useState(false);
   const [command, setCommand] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
+  const termRef = useRef<HTMLDivElement>(null);
+
+  // keep the terminal pinned to the latest output
+  useEffect(() => {
+    termRef.current?.scrollTo({ top: termRef.current.scrollHeight });
+  }, [props.reply, props.chips.length, props.lastUser]);
 
   useEffect(() => {
     const onSpeak = (e: Event) => setSpeaking((e as CustomEvent).detail);
@@ -65,6 +83,22 @@ export function DashboardPage(props: {
             ? `${stats.active_model} · local · secure`
             : "AI engine offline — start Ollama"}
         </div>
+        {(props.lastUser || props.busy) && (
+          <div className="terminal" ref={termRef}>
+            {props.lastUser && <div className="cmd">&gt; {props.lastUser}</div>}
+            {props.chips.map((c, i) => (
+              <div key={i} className="tool">
+                [{c.status === "running" ? "…" : c.status === "denied" ? "denied" : "ok"}] {c.name}
+              </div>
+            ))}
+            {props.reply ? (
+              <div className={`reply ${props.busy ? "cursor" : ""}`}>{props.reply}</div>
+            ) : (
+              props.busy && <div className="reply cursor" />
+            )}
+          </div>
+        )}
+
         <form
           className="command-bar"
           onSubmit={(e) => {
@@ -75,13 +109,41 @@ export function DashboardPage(props: {
             }
           }}
         >
+          {props.voiceSupported && (
+            <button type="button"
+                    className={`icon-btn ${props.voiceState === "listening" ? "recording" : ""}`}
+                    title="Push to talk" onClick={props.onPushToTalk}>
+              🎤
+            </button>
+          )}
           <input
             ref={inputRef}
             placeholder={`Give ${props.assistantName} a command…`}
             value={command}
             onChange={(e) => setCommand(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && command.trim()) {
+                e.preventDefault();
+                props.onCommand(command.trim());
+                setCommand("");
+              }
+            }}
           />
+          {props.voiceSupported && (
+            <button type="button"
+                    className={`icon-btn ${props.wakeActive ? "wake-on" : ""}`}
+                    title={`Wake word ("${props.wakeWord}")`} onClick={props.onToggleWake}>
+              👂
+            </button>
+          )}
         </form>
+        <div className="voice-hint">
+          {props.voiceState === "listening" && (props.interim || "Listening…")}
+          {props.voiceState === "waiting-wake" && !props.interim &&
+            `Say "${props.wakeWord}" — I'm listening`}
+          {props.voiceState === "idle" && props.voiceSupported && !props.wakeActive &&
+            "Wake word off — press 👂 to enable"}
+        </div>
       </div>
 
       <div className="dash-right">
