@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import datetime
 import json
+import re
 
 from .. import db
 from ..config import JARVIS_HOME, settings
@@ -117,10 +118,22 @@ If fulfilled=false, fill in the analysis fields:
 - difficulty: easy | medium | hard | very hard"""
 
 
+_FAILURE_HINTS = re.compile(
+    r"\b(can'?t|cannot|unable|not (?:able|possible|implemented|supported|installed)|"
+    r"don'?t have|no way to|failed|error|sorry|restriction)\b", re.I)
+
+
 def schedule_analysis(user_prompt: str, assistant_reply: str,
                       tool_events: list[dict]) -> None:
-    """Fire-and-forget so chat latency is unaffected."""
+    """Fire-and-forget, and only when the turn actually smells like a failure.
+    Running an LLM self-analysis after EVERY message kept the model busy and
+    delayed the user's next reply; successful turns are skipped instantly."""
     if not settings.get("gaps.enabled", True):
+        return
+    tool_trouble = any("Error" in (t.get("result") or "") or
+                       "DENIED" in (t.get("result") or "").upper()
+                       for t in tool_events)
+    if not tool_trouble and not _FAILURE_HINTS.search(assistant_reply or ""):
         return
     asyncio.get_event_loop().create_task(
         _analyze(user_prompt, assistant_reply, tool_events))
@@ -138,7 +151,7 @@ async def _analyze(user_prompt: str, assistant_reply: str,
                 f"USER REQUEST:\n{user_prompt[:800]}\n\n"
                 f"TOOLS THE ASSISTANT RAN:\n{tools_text}\n\n"
                 f"ASSISTANT'S FINAL REPLY:\n{assistant_reply[:1200]}"},
-        ], format=ANALYSIS_SCHEMA)
+        ], model=ollama_client.model_for("utility"), format=ANALYSIS_SCHEMA)
         data = json.loads(raw)
         if data.get("fulfilled", True):
             return

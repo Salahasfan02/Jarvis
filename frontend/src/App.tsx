@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChatView, ConfirmModal, ConfirmRequest, ToolChipInfo } from "./components/ChatView";
+import { MatrixRain } from "./components/MatrixRain";
+import { WorldMap } from "./components/WorldMap";
 import { Page, Sidebar } from "./components/Sidebar";
-import { api, Conversation, Message } from "./lib/api";
-import { speak, speechSupported, stopSpeaking, VoiceEngine } from "./lib/voice";
+import { API, api, Attachment, Conversation, Message } from "./lib/api";
+import { enqueueSpeech, playWakeChime, speechSupported, stopSpeaking, VoiceEngine, WhisperVoiceEngine } from "./lib/voice";
 import { ChatEvent, ChatSocket } from "./lib/ws";
 import { DashboardPage } from "./pages/DashboardPage";
+import { ProjectsPage } from "./pages/ProjectsPage";
 import { DevPage } from "./pages/DevPage";
 import { MemoryPage } from "./pages/MemoryPage";
 import { RegistryPage } from "./pages/RegistryPage";
@@ -12,7 +15,15 @@ import { SettingsPage } from "./pages/SettingsPage";
 
 export default function App() {
   const [page, setPage] = useState<Page>("core");
+  const pageRef = useRef(page);
+  pageRef.current = page;
   const [collapsed, setCollapsed] = useState(false);
+  const [mode, setMode] = useState<"chat" | "code">("chat");
+  const modeRef = useRef(mode);
+  modeRef.current = mode;
+  const [attachments, setAttachments] = useState<Attachment[]>([]);
+  const [uploading, setUploading] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const [settings, setSettings] = useState<any>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeId, setActiveId] = useState<string | null>(null);
@@ -33,7 +44,36 @@ export default function App() {
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
   const streamBuf = useRef("");
+  const spokenRef = useRef(0);   // chars of the stream already sent to TTS
   const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  // Speak completed sentences WHILE the reply streams, so Jarvis starts
+  // talking after the first sentence instead of after the whole answer.
+  const speakStreamedSentences = useCallback((flushAll: boolean) => {
+    const st = settingsRef.current;
+    if (!st?.voice?.tts_enabled) return;
+    // Jarvis only speaks on the Core screen — never in the chat/code workspace.
+    if (pageRef.current !== "core") return;
+    // Don't read code aloud: if we're inside an unterminated ``` fence, wait.
+    const soFar = streamBuf.current;
+    const fences = (soFar.match(/```/g) || []).length;
+    if (!flushAll && fences % 2 === 1) return;
+    const unspoken = streamBuf.current.slice(spokenRef.current);
+    let cut = -1;
+    if (flushAll) {
+      cut = unspoken.length;
+    } else {
+      const re = /[.!?][)"'”]?(?=\s|$)/g;
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(unspoken))) cut = m.index + m[0].length;
+      if (cut < 40) return;   // wait for a meaty chunk; avoids "Dr." fragments
+    }
+    const chunk = unspoken.slice(0, cut);
+    if (chunk.trim()) {
+      enqueueSpeech(chunk, st.voice.tts_rate, st.voice.tts_voice);
+    }
+    spokenRef.current += cut;
+  }, []);
 
   const refreshConversations = useCallback(
     (q = "") => api.conversations(q).then(setConversations).catch(() => {}),
@@ -53,11 +93,77 @@ export default function App() {
     setChips([]);
     setAgentName(null);
     streamBuf.current = "";
+    spokenRef.current = 0;
     setStreaming(null);
     setInput("");
     // Deliberately no navigation: talking from the Core stays on the Core.
-    socket.chat(target, content);
+    socket.chat(target, content, modeRef.current);
   }, [socket]);
+
+  // ---- attachments & workspace mode ----
+  const refreshAttachments = useCallback((convId: string | null) => {
+    if (!convId) { setAttachments([]); return; }
+    api.attachments(convId).then(setAttachments).catch(() => setAttachments([]));
+  }, []);
+
+  const uploadFiles = useCallback(async (files: FileList | File[] | null) => {
+    const list = files ? Array.from(files) : [];
+    if (!list.length) return;
+    let convId = activeIdRef.current;
+    if (!convId) {
+      const conv = await api.newConversation(modeRef.current);
+      convId = conv.id;
+      setActiveId(conv.id);
+      refreshConversations();
+    }
+    for (const file of list) {
+      setUploading(`reading ${file.name}…`);
+      try {
+        const res = await fetch(
+          `${API}/conversations/${convId}/attachments?name=${encodeURIComponent(file.name)}`,
+          { method: "POST", body: await file.arrayBuffer(),
+            headers: { "Content-Type": "application/octet-stream" } });
+        const r = await res.json();
+        setUploading(r.error ? `❌ ${r.error}` : "");
+      } catch (e: any) {
+        setUploading(`❌ ${e.message}`);
+      }
+    }
+    refreshAttachments(convId);
+  }, [refreshAttachments, refreshConversations]);
+
+  const [projects, setProjects] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    if (page === "chat" || page === "projects") {
+      fetch(`${API}/projects`).then((r) => r.json()).then(setProjects).catch(() => {});
+    }
+  }, [page]);
+
+  const assignProject = async (projectId: string) => {
+    let convId = activeIdRef.current;
+    if (!convId) {
+      const conv = await api.newConversation(modeRef.current);
+      convId = conv.id;
+      setActiveId(conv.id);
+    }
+    await fetch(`${API}/conversations/${convId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ project_id: projectId || null }),
+    }).catch(() => {});
+    refreshConversations();
+  };
+
+  const switchMode = (m: "chat" | "code") => {
+    setMode(m);
+    if (activeIdRef.current) {
+      fetch(`${API}/conversations/${activeIdRef.current}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: m }),
+      }).then(() => refreshConversations()).catch(() => {});
+    }
+  };
 
   // ---- websocket events ----
   useEffect(() => {
@@ -75,6 +181,7 @@ export default function App() {
         case "token":
           streamBuf.current += e.content;
           setStreaming(streamBuf.current);
+          speakStreamedSentences(false);
           break;
         case "tool_start":
           setChips((c) => [...c.filter((x) => !(x.name === e.name && x.status === "running")),
@@ -98,6 +205,16 @@ export default function App() {
         case "confirm_request":
           setConfirm({ id: e.id, tool: e.tool, arguments: e.arguments, risk: e.risk });
           break;
+        case "plan":
+          setChips(e.steps.map((s, i) => ({
+            name: `${i + 1}. ${s.length > 60 ? s.slice(0, 57) + "…" : s}`,
+            status: "pending" as const,
+          })));
+          break;
+        case "step":
+          setChips((c) => c.map((chip, i) =>
+            i === e.index ? { ...chip, status: e.status } : chip));
+          break;
         case "done": {
           setBusy(false);
           setStreaming(null);
@@ -105,10 +222,8 @@ export default function App() {
           setAgentName(null);
           const id = activeIdRef.current;
           if (id) api.messages(id).then(setMessages).catch(() => {});
-          const st = settingsRef.current;
-          if (st?.voice?.tts_enabled && e.content) {
-            speak(e.content, st.voice.tts_rate, st.voice.tts_voice);
-          }
+          streamBuf.current = e.content;      // speak whatever trailed the last "."
+          speakStreamedSentences(true);
           break;
         }
         case "title":
@@ -118,6 +233,7 @@ export default function App() {
           setBusy(false);
           setStreaming(null);
           setChips([]);
+          stopSpeaking();
           break;
         case "error":
           setBusy(false);
@@ -144,18 +260,40 @@ export default function App() {
   }, [refreshConversations]);
 
   // ---- voice ----
+  // Whisper (offline, any browser) is preferred; browser recognition is the
+  // fallback while the Whisper model isn't downloaded yet.
+  const [sttReady, setSttReady] = useState(false);
+  useEffect(() => {
+    const check = () =>
+      fetch(`${API}/stt/status`).then((r) => r.json())
+        .then((s) => setSttReady(!!s.available)).catch(() => setSttReady(false));
+    check();
+    const t = setInterval(check, 20000);
+    return () => clearInterval(t);
+  }, [settings]);
+
+  const useWhisper = (settings?.voice?.stt_engine ?? "whisper") === "whisper" && sttReady;
+
   const voice = useMemo(() => {
-    if (!speechSupported) return null;
-    return new VoiceEngine({
+    const opts = {
       language: "en-US",
       wakeWords: ["jarvis"],
-      onTranscript: (text) => send(text),
+      onTranscript: (text: string) => send(text),
       onInterim: setInterim,
-      onWake: () => stopSpeaking(),
+      onWake: () => {
+        stopSpeaking();
+        playWakeChime();   // audible confirmation that Jarvis is listening
+      },
       onStateChange: setVoiceState,
       onPermissionDenied: () => setWakeWanted(false),
-    });
-  }, [send]);
+    };
+    if (useWhisper) return new WhisperVoiceEngine(opts);
+    if (!speechSupported) return null;
+    return new VoiceEngine(opts);
+  }, [send, useWhisper]);
+
+  // stop the previous engine whenever the engine instance is replaced
+  useEffect(() => () => voice?.stop(), [voice]);
 
   useEffect(() => {
     if (voice && settings) {
@@ -171,10 +309,10 @@ export default function App() {
   // wake word on the Core works without touching anything.
   const [wakeWanted, setWakeWanted] = useState<boolean | null>(null);
   useEffect(() => {
-    if (wakeWanted === null && settings) {
-      setWakeWanted(settings.voice?.enabled !== false && speechSupported);
+    if (wakeWanted === null && settings && voice) {
+      setWakeWanted(settings.voice?.enabled !== false);
     }
-  }, [settings, wakeWanted]);
+  }, [settings, wakeWanted, voice]);
   useEffect(() => {
     if (!voice || !wakeWanted) return;
     if (voiceState === "idle") {
@@ -198,12 +336,33 @@ export default function App() {
 
   // ---- theme ----
   useEffect(() => {
-    const theme = settings?.ui?.theme ?? "dark";
-    const dark = theme === "system"
-      ? window.matchMedia("(prefers-color-scheme: dark)").matches
-      : theme === "dark";
-    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    const root = document.documentElement;
+    const theme = settings?.ui?.theme ?? "hacker";
+    root.dataset.theme = theme === "system"
+      ? (window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light")
+      : theme;
+
+    // custom accent color overrides the theme's accent everywhere
+    const accent: string = settings?.ui?.accent ?? "";
+    if (/^#[0-9a-fA-F]{6}$/.test(accent)) {
+      root.style.setProperty("--accent", accent);
+      const r = parseInt(accent.slice(1, 3), 16);
+      const g = parseInt(accent.slice(3, 5), 16);
+      const b = parseInt(accent.slice(5, 7), 16);
+      root.style.setProperty("--core-rgb", `${r}, ${g}, ${b}`);
+    } else {
+      root.style.removeProperty("--accent");
+      root.style.removeProperty("--core-rgb");
+    }
+
+    // custom background color (hex) overrides the theme background
+    const bg: string = settings?.ui?.background ?? "";
+    if (/^#[0-9a-fA-F]{6}$/.test(bg)) root.style.setProperty("--bg", bg);
+    else root.style.removeProperty("--bg");
   }, [settings]);
+
+  const bgKind: string = settings?.ui?.background ?? "";
+  const animatedBg = bgKind === "matrix" || bgKind === "world";
 
   const patchSettings = (patch: any) => {
     setSettings((s: any) => {
@@ -218,11 +377,15 @@ export default function App() {
     setActiveId(id);
     setPage("chat");
     api.messages(id).then(setMessages).catch(() => {});
+    const conv = conversations.find((c) => c.id === id);
+    setMode(conv?.mode === "code" ? "code" : "chat");
+    refreshAttachments(id);
   };
 
   const newChat = () => {
     setActiveId(null);
     setMessages([]);
+    setAttachments([]);
     setPage("chat");
     stopSpeaking();
     inputRef.current?.focus();
@@ -261,10 +424,13 @@ export default function App() {
     }
   };
 
-  const voiceEnabled = settings?.voice?.enabled !== false && speechSupported;
+  const voiceEnabled = settings?.voice?.enabled !== false && voice !== null;
 
   return (
-    <div className={`app ${settings?.ui?.glass !== false ? "glass" : ""}`}>
+    <>
+    {bgKind === "matrix" && <MatrixRain />}
+    {bgKind === "world" && <WorldMap />}
+    <div className={`app ${settings?.ui?.glass !== false ? "glass" : ""} ${animatedBg ? "matrix-bg" : ""}`}>
       <Sidebar
         conversations={conversations}
         activeId={activeId}
@@ -283,7 +449,34 @@ export default function App() {
 
       <div className="main">
         {page === "chat" && (
-          <>
+          <div className="workspace"
+               onDragOver={(e) => e.preventDefault()}
+               onDrop={(e) => { e.preventDefault(); uploadFiles(e.dataTransfer.files); }}>
+            <div className="workspace-header">
+              <div className="mode-toggle">
+                <button className={mode === "chat" ? "active" : ""}
+                        onClick={() => switchMode("chat")}>💬 Chat</button>
+                <button className={mode === "code" ? "active" : ""}
+                        onClick={() => switchMode("code")}>⌨️ Code</button>
+              </div>
+              {mode === "code" && (
+                <span className="workspace-hint">
+                  senior-engineer mode · code blocks are runnable
+                </span>
+              )}
+              <div style={{ flex: 1 }} />
+              <select
+                className="project-select"
+                title="Assign this conversation to a project"
+                value={conversations.find((c) => c.id === activeId)?.project_id ?? ""}
+                onChange={(e) => assignProject(e.target.value)}
+              >
+                <option value="">📁 no project</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>📁 {p.name}</option>
+                ))}
+              </select>
+            </div>
             <ChatView
               messages={messages}
               streaming={busy ? streaming ?? "" : null}
@@ -296,8 +489,29 @@ export default function App() {
               onSuggestion={(s) => send(s)}
               assistantName={settings?.assistant?.name ?? "Jarvis"}
             />
+            {(attachments.length > 0 || uploading) && (
+              <div className="attach-row">
+                {attachments.map((a) => (
+                  <span key={a.id} className="chip">
+                    {a.kind === "image" ? "🖼" : "📄"} {a.name}
+                    <button className="chip-x" title="Remove"
+                            onClick={() => api.deleteAttachment(a.id)
+                              .then(() => refreshAttachments(activeIdRef.current))}>
+                      ✕
+                    </button>
+                  </span>
+                ))}
+                {uploading && <span className="chip">{uploading}</span>}
+              </div>
+            )}
             <div className="composer-wrap">
               <div className="composer">
+                <button className="icon-btn" title="Attach files or images"
+                        onClick={() => fileInputRef.current?.click()}>
+                  📎
+                </button>
+                <input ref={fileInputRef} type="file" multiple style={{ display: "none" }}
+                       onChange={(e) => { uploadFiles(e.target.files); e.target.value = ""; }} />
                 {voiceEnabled && (
                   <button
                     className={`icon-btn ${voiceState === "listening" ? "recording" : ""}`}
@@ -319,7 +533,9 @@ export default function App() {
                 <textarea
                   ref={inputRef}
                   rows={1}
-                  placeholder={busy ? "Thinking…" : `Message ${settings?.assistant?.name ?? "Jarvis"}…`}
+                  placeholder={busy ? "Thinking…"
+                    : mode === "code" ? "Describe what to build, debug or refactor…"
+                    : `Message ${settings?.assistant?.name ?? "Jarvis"}…`}
                   value={input}
                   onChange={(e) => {
                     setInput(e.target.value);
@@ -327,6 +543,13 @@ export default function App() {
                     e.target.style.height = Math.min(e.target.scrollHeight, 180) + "px";
                   }}
                   onKeyDown={onComposerKey}
+                  onPaste={(e) => {
+                    const files = Array.from(e.clipboardData.files);
+                    if (files.length) {
+                      e.preventDefault();
+                      uploadFiles(files);
+                    }
+                  }}
                 />
                 {busy ? (
                   <button className="icon-btn" title="Stop" onClick={() => socket.stop()}>■</button>
@@ -340,7 +563,7 @@ export default function App() {
                 {(voiceState === "listening" || interim) && (interim || "Listening…")}
               </div>
             </div>
-          </>
+          </div>
         )}
         {page === "core" && (
           <DashboardPage
@@ -356,16 +579,50 @@ export default function App() {
             voiceState={voiceState}
             wakeWord={(settings?.assistant?.wake_words ?? ["jarvis"])[0]}
             wakeActive={voiceState === "waiting-wake"}
-            voiceSupported={speechSupported && settings?.voice?.enabled !== false}
+            voiceSupported={voice !== null && settings?.voice?.enabled !== false}
             onToggleWake={toggleWake}
             onPushToTalk={() =>
               voiceState === "listening" ? voice?.stop() : voice?.startListening()}
+            coreDesign={settings?.ui?.core_design ?? "orb"}
+            onCycleDesign={() => {
+              const order = ["orb", "reactor", "halo", "nebula"];
+              const current = settings?.ui?.core_design ?? "orb";
+              const next = order[(order.indexOf(current) + 1) % order.length];
+              patchSettings({ ui: { core_design: next } });
+            }}
           />
         )}
+        {page === "projects" && <ProjectsPage onOpenConversation={openConversation} />}
         {page === "settings" && <SettingsPage settings={settings} onPatch={patchSettings} />}
         {page === "memory" && <MemoryPage />}
         {page === "dev" && <DevPage />}
-        {page === "registry" && <RegistryPage />}
+        {page === "registry" && (
+          <RegistryPage onFixIt={(g) => {
+            // Fix-it opens a fresh CODE-mode conversation with the request staged
+            setActiveId(null);
+            setMessages([]);
+            setAttachments([]);
+            setMode("code");
+            setPage("chat");
+            setInput(
+              `Write a new tool plugin for my Jarvis assistant (Python) that adds this missing capability:\n\n` +
+              `CAPABILITY: ${g.capability}\n` +
+              (g.goal ? `GOAL: ${g.goal}\n` : "") +
+              (g.reason ? `WHY IT FAILED BEFORE: ${g.reason}\n` : "") +
+              (g.suggested_fix ? `SUGGESTED APPROACH: ${g.suggested_fix}\n` : "") +
+              `\nThe plugin must be a single plugin.py file for the folder ` +
+              `~/.jarvis/plugins/${g.capability.toLowerCase().replace(/[^a-z0-9]+/g, "_")}/ using this exact framework:\n\n` +
+              `from app.tools.base import tool\n\n` +
+              `@tool(\n    name="tool_name",\n    description="what it does (the LLM reads this to decide when to call it)",\n` +
+              `    parameters={"type": "object", "properties": {"arg": {"type": "string"}}, "required": ["arg"]},\n` +
+              `    risk="safe",  # safe | confirm | dangerous\n)\n` +
+              `def tool_name(arg: str) -> str:\n    ...\n\n` +
+              `Handlers can be sync or async and must return a string. Use AppleScript via ` +
+              `subprocess osascript for Mac app control, or httpx for web APIs. Include all ` +
+              `imports. When it looks right, install it with the create_skill tool.`
+            );
+          }} />
+        )}
       </div>
 
       {confirm && (
@@ -378,6 +635,7 @@ export default function App() {
         />
       )}
     </div>
+    </>
   );
 }
 

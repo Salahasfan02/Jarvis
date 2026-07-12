@@ -29,7 +29,14 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "temperature": 0.7,
         "num_ctx": 8192,                # context length
         "num_gpu": -1,                  # -1 = let Ollama decide
-        "keep_alive": "5m",             # how long the model stays in memory
+        "keep_alive": "30m",            # how long the model stays in memory
+        # Per-task model overrides. Empty = use the main chat model. Lets a
+        # small fast model handle utility work (titles, self-analysis) while
+        # a strong model does coding — fully model-agnostic.
+        "task_models": {
+            "coding": "",               # Code Studio + coding agent
+            "utility": "",              # titles, gap analysis, summaries
+        },
     },
     "assistant": {
         "name": "Jarvis",
@@ -44,9 +51,12 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         "enabled": True,
         "wake_word_enabled": False,
         "tts_enabled": True,
-        "tts_engine": "browser",        # browser | piper (auto-falls back)
+        "tts_engine": "kokoro",         # kokoro | piper | browser (auto-falls back)
         "tts_rate": 1.0,
-        "tts_voice": "",                # empty = system default
+        "tts_voice": "",                # browser engine only; "" = system default
+        "kokoro_voice": "bm_george",    # human-sounding neural voice
+        "stt_engine": "whisper",        # whisper (offline) | browser (Chrome only)
+        "whisper_model": "base",        # tiny | base | small
         "piper_voice_path": "",         # path to a .onnx piper voice model
         "language": "en-US",
     },
@@ -72,8 +82,11 @@ DEFAULT_SETTINGS: dict[str, Any] = {
         # tools not listed use their declared default
     },
     "ui": {
-        "theme": "dark",                # dark | light | system
+        "theme": "hacker",              # hacker | dark | light | cyberpunk | system
         "glass": True,
+        "accent": "",                   # hex color overriding the theme accent
+        "background": "",               # "" theme default | "matrix" | "world" | hex
+        "core_design": "orb",           # orb | reactor | halo | nebula
     },
     "developer": {
         "debug": False,

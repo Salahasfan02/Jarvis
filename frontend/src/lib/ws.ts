@@ -8,6 +8,8 @@ export type ChatEvent =
   | { type: "tool_start"; name: string; arguments: any }
   | { type: "tool_result"; name: string; result: string; denied?: boolean }
   | { type: "confirm_request"; id: string; tool: string; arguments: any; risk: string }
+  | { type: "plan"; steps: string[] }
+  | { type: "step"; index: number; total: number; title: string; status: "running" | "done" }
   | { type: "done"; content: string; message_id: string }
   | { type: "title"; title: string }
   | { type: "stopped" }
@@ -44,8 +46,8 @@ export class ChatSocket {
     }
   }
 
-  chat(conversationId: string | null, content: string) {
-    this.send({ type: "chat", conversation_id: conversationId, content });
+  chat(conversationId: string | null, content: string, mode: "chat" | "code" = "chat") {
+    this.send({ type: "chat", conversation_id: conversationId, content, mode });
   }
 
   confirm(id: string, approved: boolean, tool?: string, remember?: boolean) {

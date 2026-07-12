@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
@@ -68,6 +68,19 @@ async def remove_model(name: str):
     return {"ok": True}
 
 
+@router.post("/models/benchmark")
+async def benchmark_model(body: dict):
+    name = (body.get("name") or "").strip()
+    if not name:
+        return {"error": "no model name"}
+    try:
+        result = await ollama_client.benchmark(name)
+        audit.log("model_benchmark", **result)
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
 @router.post("/models/pull")
 async def pull_model(body: dict):
     name = body.get("name", "").strip()
@@ -90,8 +103,8 @@ def conversations(q: str = ""):
 
 
 @router.post("/conversations")
-def new_conversation():
-    return db.create_conversation()
+def new_conversation(body: dict | None = None):
+    return db.create_conversation(mode=(body or {}).get("mode", "chat"))
 
 
 @router.get("/conversations/{conv_id}/messages")
@@ -102,6 +115,75 @@ def conversation_messages(conv_id: str):
 @router.patch("/conversations/{conv_id}")
 def patch_conversation(conv_id: str, body: dict):
     db.rename_conversation(conv_id, title=body.get("title"), folder=body.get("folder"))
+    if body.get("mode") in ("chat", "code"):
+        db.set_conversation_mode(conv_id, body["mode"])
+    if "project_id" in body:
+        db.set_conversation_project(conv_id, body["project_id"] or None)
+    return {"ok": True}
+
+
+# --- projects --------------------------------------------------------------------
+
+@router.get("/projects")
+def projects_list():
+    return db.list_projects()
+
+
+@router.post("/projects")
+def projects_create(body: dict):
+    name = (body.get("name") or "").strip()
+    if not name:
+        return {"error": "project needs a name"}
+    return db.create_project(name, body.get("description", ""))
+
+
+@router.get("/projects/{proj_id}")
+def project_get(proj_id: str):
+    project = db.get_project(proj_id)
+    if not project:
+        return {"error": "not found"}
+    project["conversations"] = db.conversations_in_project(proj_id)
+    return project
+
+
+@router.patch("/projects/{proj_id}")
+def project_update(proj_id: str, body: dict):
+    db.update_project(proj_id, body)
+    return {"ok": True}
+
+
+@router.delete("/projects/{proj_id}")
+def project_delete(proj_id: str):
+    db.delete_project(proj_id)
+    return {"ok": True}
+
+
+# --- conversation attachments ---------------------------------------------------
+
+@router.get("/conversations/{conv_id}/attachments")
+def get_attachments(conv_id: str):
+    return db.list_attachments(conv_id)
+
+
+@router.post("/conversations/{conv_id}/attachments")
+async def upload_attachment(conv_id: str, request: Request, name: str = "file.txt"):
+    from ..knowledge import attachments as attach
+    data = await request.body()
+    if not data:
+        return {"error": "empty file"}
+    if len(data) > 25 * 1024 * 1024:
+        return {"error": "file too large (25 MB max)"}
+    try:
+        att = await attach.ingest(conv_id, name, data)
+        audit.log("attachment_added", conversation=conv_id, name=name)
+        return att
+    except Exception as e:
+        return {"error": f"could not read {name}: {e}"}
+
+
+@router.delete("/attachments/{att_id}")
+def remove_attachment(att_id: str):
+    db.delete_attachment(att_id)
     return {"ok": True}
 
 
@@ -258,12 +340,178 @@ async def app_context_endpoint():
     return await app_context.snapshot()
 
 
+# --- knowledge base (RAG) --------------------------------------------------------
+
+@router.get("/knowledge")
+def knowledge_list():
+    return db.list_documents()
+
+
+@router.post("/knowledge/upload")
+async def knowledge_upload(request: Request, name: str = "document.txt"):
+    from ..knowledge import store as knowledge
+    data = await request.body()
+    if not data:
+        return {"error": "empty file"}
+    result = await knowledge.ingest(name, data)
+    audit.log("document_ingested", name=name,
+              chunks=result.get("chunk_count", 0))
+    return result
+
+
+@router.delete("/knowledge/{doc_id}")
+def knowledge_delete(doc_id: str):
+    db.delete_document(doc_id)
+    return {"ok": True}
+
+
+@router.post("/knowledge/search")
+async def knowledge_search(body: dict):
+    from ..knowledge import store as knowledge
+    return await knowledge.search(body.get("query", ""),
+                                  int(body.get("limit", 5)))
+
+
+# --- sandboxed code execution -----------------------------------------------------
+
+@router.post("/code/run")
+async def code_run(body: dict):
+    from ..sandbox import runner
+    result = await runner.run(
+        code=body.get("code", ""),
+        language=body.get("language", "python"),
+        timeout=min(int(body.get("timeout", 30)), 120),
+        files=body.get("files"),
+        packages=body.get("packages"),
+        project=body.get("project", ""),
+        entry=body.get("entry", ""))
+    audit.log("code_run", language=body.get("language"),
+              exit_code=result.get("exit_code"), error=result.get("error"))
+    return result
+
+
+@router.get("/code/languages")
+def code_languages():
+    from ..sandbox import runner
+    return runner.available_languages()
+
+
+# --- skill installation (user-initiated from Code Studio) --------------------------
+
+@router.post("/plugins/install")
+def plugin_install(body: dict):
+    from ..plugins import loader as plugins
+    try:
+        result = plugins.install_skill(body.get("name", ""), body.get("code", ""))
+        audit.log("skill_installed", **{k: v for k, v in result.items() if k != "path"})
+        return result
+    except ValueError as e:
+        return {"error": str(e)}
+
+
+# --- offline speech recognition (whisper) ---------------------------------------
+
+@router.get("/stt/status")
+def stt_status():
+    from ..speech import stt
+    return stt.status()
+
+
+@router.post("/stt/download")
+async def stt_download(body: dict | None = None):
+    from ..speech import stt
+
+    size = (body or {}).get("model") or stt.configured_size()
+
+    async def stream():
+        async for event in stt.download(size):
+            yield json.dumps(event) + "\n"
+
+    audit.log("whisper_download_started", model=size)
+    return StreamingResponse(stream(), media_type="application/x-ndjson")
+
+
+@router.post("/stt/transcribe")
+async def stt_transcribe(request: Request):
+    from ..speech import stt
+    audio = await request.body()
+    if not audio:
+        return {"error": "empty audio"}
+    return await stt.transcribe(audio)
+
+
+# --- code studio ---------------------------------------------------------------
+
+CODE_SYSTEM_PROMPT = (
+    "You are Jarvis Code, an expert software engineer. You write complete, "
+    "working, production-quality code.\n"
+    "Rules:\n"
+    "- Respond with exactly ONE fenced code block containing the full code.\n"
+    "- Tag the fence with the language (```python, ```typescript, ...).\n"
+    "- Include brief comments where they help understanding.\n"
+    "- No prose before or after the block; if something must be explained, "
+    "put it in code comments.\n"
+    "- When asked to modify previous code, return the complete updated file, "
+    "not a diff."
+)
+
+
+@router.post("/code/generate")
+async def code_generate(body: dict):
+    messages = body.get("messages", [])[-20:]
+    language = (body.get("language") or "").strip()
+    system = CODE_SYSTEM_PROMPT
+    if language:
+        system += f"\n- Write the code in {language} unless the request demands otherwise."
+
+    async def stream():
+        try:
+            async for chunk in ollama_client.chat_stream(
+                    [{"role": "system", "content": system}, *messages],
+                    model=ollama_client.model_for("coding")):
+                content = chunk.get("message", {}).get("content", "")
+                if content:
+                    yield json.dumps({"token": content}) + "\n"
+                if chunk.get("done"):
+                    break
+            yield json.dumps({"done": True}) + "\n"
+        except Exception as e:
+            yield json.dumps({"error": str(e)}) + "\n"
+
+    audit.log("code_generate", prompt=(messages[-1].get("content", "")[:200]
+                                       if messages else ""))
+    return StreamingResponse(stream(), media_type="application/x-ndjson")
+
+
 # --- text to speech -------------------------------------------------------------
 
 @router.get("/tts/engines")
 def tts_engines():
     from ..speech import engines
     return engines.list_engines()
+
+
+@router.get("/tts/voices")
+def tts_voices():
+    from ..speech.engines import KOKORO_VOICES
+    return KOKORO_VOICES
+
+
+@router.post("/tts/kokoro/download")
+async def kokoro_download():
+    from ..speech import engines
+
+    async def stream():
+        try:
+            engine = engines.ENGINES["kokoro"]
+            async for event in engine.download():  # type: ignore[attr-defined]
+                yield json.dumps(event) + "\n"
+            yield json.dumps({"done": True}) + "\n"
+        except Exception as e:
+            yield json.dumps({"error": str(e)}) + "\n"
+
+    audit.log("kokoro_download_started")
+    return StreamingResponse(stream(), media_type="application/x-ndjson")
 
 
 @router.post("/tts/speak")
@@ -305,7 +553,9 @@ async def ws_chat(ws: WebSocket):
             if mtype == "chat":
                 if current_task and not current_task.done():
                     current_task.cancel()
-                conv_id = msg.get("conversation_id") or db.create_conversation()["id"]
+                conv_id = (msg.get("conversation_id")
+                           or db.create_conversation(
+                               mode=msg.get("mode", "chat"))["id"])
                 await ws.send_json({"type": "conversation", "conversation_id": conv_id})
                 current_task = asyncio.create_task(run(conv_id, msg.get("content", "")))
 

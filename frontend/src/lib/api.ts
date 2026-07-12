@@ -14,7 +14,16 @@ export interface Conversation {
   id: string;
   title: string;
   folder: string;
+  mode?: "chat" | "code";
+  project_id?: string | null;
   updated_at: number;
+}
+
+export interface Attachment {
+  id: string;
+  name: string;
+  kind: "file" | "image";
+  created_at: number;
 }
 
 export interface Message {
@@ -42,7 +51,12 @@ export const api = {
     request(`/models/${encodeURIComponent(name)}`, { method: "DELETE" }),
   conversations: (q = "") =>
     request<Conversation[]>(`/conversations${q ? `?q=${encodeURIComponent(q)}` : ""}`),
-  newConversation: () => request<Conversation>("/conversations", { method: "POST" }),
+  newConversation: (mode: "chat" | "code" = "chat") =>
+    request<Conversation>("/conversations", { method: "POST", body: JSON.stringify({ mode }) }),
+  attachments: (convId: string) =>
+    request<Attachment[]>(`/conversations/${convId}/attachments`),
+  deleteAttachment: (attId: string) =>
+    request(`/attachments/${attId}`, { method: "DELETE" }),
   messages: (id: string) => request<Message[]>(`/conversations/${id}/messages`),
   renameConversation: (id: string, body: { title?: string; folder?: string }) =>
     request(`/conversations/${id}`, { method: "PATCH", body: JSON.stringify(body) }),

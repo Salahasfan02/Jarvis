@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { statsApi, SystemStats } from "../lib/api";
 import { voiceBus } from "../lib/voice";
-import { Core, CoreMode } from "../components/Core";
+import { Core, CoreDesign, CoreMode } from "../components/Core";
 
 function Meter({ label, value, detail }: { label: string; value: number; detail?: string }) {
   return (
@@ -32,6 +32,8 @@ export function DashboardPage(props: {
   voiceSupported: boolean;
   onToggleWake: () => void;
   onPushToTalk: () => void;
+  coreDesign: CoreDesign;
+  onCycleDesign: () => void;
 }) {
   const [stats, setStats] = useState<SystemStats | null>(null);
   const [ctx, setCtx] = useState<any>(null);
@@ -76,7 +78,7 @@ export function DashboardPage(props: {
   return (
     <div className="dashboard">
       <div className="dash-center">
-        <Core mode={mode} />
+        <Core mode={mode} design={props.coreDesign} onClick={props.onCycleDesign} />
         <div className={`core-status ${mode}`}>{statusText}</div>
         <div className="core-sub">
           {stats?.ollama_up
@@ -87,8 +89,9 @@ export function DashboardPage(props: {
           <div className="terminal" ref={termRef}>
             {props.lastUser && <div className="cmd">&gt; {props.lastUser}</div>}
             {props.chips.map((c, i) => (
-              <div key={i} className="tool">
-                [{c.status === "running" ? "…" : c.status === "denied" ? "denied" : "ok"}] {c.name}
+              <div key={i} className="tool" style={c.status === "pending" ? { opacity: 0.5 } : undefined}>
+                [{c.status === "running" ? "…" : c.status === "denied" ? "denied"
+                  : c.status === "pending" ? " " : "ok"}] {c.name}
               </div>
             ))}
             {props.reply ? (

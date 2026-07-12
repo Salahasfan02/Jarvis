@@ -1,14 +1,38 @@
-import { useEffect, useState } from "react";
-import { api } from "../lib/api";
+import { useEffect, useRef, useState } from "react";
+import { API, api } from "../lib/api";
 
 export function MemoryPage() {
   const [memories, setMemories] = useState<any[]>([]);
   const [draft, setDraft] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
+  const [docs, setDocs] = useState<any[]>([]);
+  const [uploading, setUploading] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
 
-  const refresh = () => api.memories().then(setMemories).catch(() => {});
+  const refresh = () => {
+    api.memories().then(setMemories).catch(() => {});
+    fetch(`${API}/knowledge`).then((r) => r.json()).then(setDocs).catch(() => {});
+  };
   useEffect(() => { refresh(); }, []);
+
+  const uploadFiles = async (files: FileList | null) => {
+    if (!files?.length) return;
+    for (const file of Array.from(files)) {
+      setUploading(`ingesting ${file.name}…`);
+      try {
+        const res = await fetch(
+          `${API}/knowledge/upload?name=${encodeURIComponent(file.name)}`,
+          { method: "POST", body: await file.arrayBuffer(),
+            headers: { "Content-Type": "application/octet-stream" } });
+        const r = await res.json();
+        setUploading(r.error ? `❌ ${r.error}` : "");
+      } catch (e: any) {
+        setUploading(`❌ ${e.message}`);
+      }
+    }
+    refresh();
+  };
 
   return (
     <div className="page">
@@ -31,6 +55,37 @@ export function MemoryPage() {
             </button>
           </div>
         </div>
+        <div className="panel"
+             onDragOver={(e) => e.preventDefault()}
+             onDrop={(e) => { e.preventDefault(); uploadFiles(e.dataTransfer.files); }}>
+          <h3>Documents ({docs.length})</h3>
+          <div className="sub" style={{ marginBottom: 10 }}>
+            Drop PDF / text / markdown files here (or click Add). Jarvis reads them
+            and can answer questions from their contents — everything stays local.
+          </div>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginBottom: 6 }}>
+            <button className="btn primary" onClick={() => fileRef.current?.click()}>
+              ＋ Add documents
+            </button>
+            <span className="sub">{uploading}</span>
+            <input ref={fileRef} type="file" multiple accept=".pdf,.txt,.md,.csv,.json,.log"
+                   style={{ display: "none" }}
+                   onChange={(e) => { uploadFiles(e.target.files); e.target.value = ""; }} />
+          </div>
+          {docs.map((d) => (
+            <div className="row" key={d.id}>
+              <div>
+                <div className="label">📄 {d.name}</div>
+                <div className="sub">{d.chunk_count} passages · {new Date(d.created_at * 1000).toLocaleDateString()}</div>
+              </div>
+              <button className="btn danger"
+                      onClick={() => fetch(`${API}/knowledge/${d.id}`, { method: "DELETE" }).then(refresh)}>
+                Delete
+              </button>
+            </div>
+          ))}
+        </div>
+
         <div className="panel">
           <h3>{memories.length} memories</h3>
           {memories.length === 0 && (

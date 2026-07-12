@@ -5,7 +5,8 @@
   "main": "main.cjs",
   "scripts": {
     "start": "electron .",
-    "package": "electron-builder --mac"
+    "prepackage": "npm run build --prefix ../frontend && rm -rf renderer && cp -R ../frontend/dist renderer && mkdir -p ~/.jarvis && (cd ../backend && pwd) > ~/.jarvis/backend_path",
+    "package": "CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac dir"
   },
   "devDependencies": {
     "electron": "^31.0.0",
@@ -14,6 +15,7 @@
   "build": {
     "appId": "com.jarvis.assistant",
     "productName": "Jarvis",
+    "files": ["main.cjs", "renderer/**/*"],
     "mac": { "category": "public.app-category.productivity" }
   }
 }

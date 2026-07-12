@@ -99,6 +99,32 @@ async def screen_look(question: str = "Describe what is on this screen.") -> str
 
 
 @tool(
+    name="screen_read",
+    description="Read the EXACT text on the user's screen using Apple's OCR (same "
+                "engine as Live Text). Use when the user wants text read, copied, "
+                "summarized or checked precisely. For describing images/layout, "
+                "use screen_look instead.",
+    parameters={"type": "object", "properties": {}},
+    risk="confirm",
+    agent_tags=["vision"],
+)
+async def screen_read() -> str:
+    from ...vision import ocr
+    path = Path(tempfile.mkstemp(suffix=".png")[1])
+    proc = await asyncio.create_subprocess_exec("screencapture", "-x", str(path))
+    await proc.wait()
+    if not path.exists() or path.stat().st_size == 0:
+        return "Screen capture failed — check Screen Recording permission in System Settings."
+    try:
+        text = await ocr.ocr_file(path)
+        return text[:8000] if text.strip() else "No text was recognized on the screen."
+    except Exception as e:
+        return f"OCR failed: {e}"
+    finally:
+        path.unlink(missing_ok=True)
+
+
+@tool(
     name="camera_look",
     description="Take a photo with the webcam and describe what the camera sees, or "
                 "answer a question about it. Requires the 'imagesnap' utility "
@@ -126,6 +152,185 @@ async def camera_look(question: str = "Describe what you see.") -> str:
         return await _describe_image(path, question)
     finally:
         path.unlink(missing_ok=True)
+
+
+@tool(
+    name="search_documents",
+    description="Search the user's ingested documents (PDFs, notes, files added to the "
+                "knowledge base) and return the most relevant passages. Use whenever a "
+                "question might be answered by the user's own files.",
+    parameters={
+        "type": "object",
+        "properties": {"query": {"type": "string"}},
+        "required": ["query"],
+    },
+)
+async def search_documents(query: str) -> str:
+    from ...knowledge import store as knowledge
+    results = await knowledge.search(query)
+    if not results:
+        return ("No matching passages. The knowledge base may be empty — the user can "
+                "add documents in the Memory page.")
+    return "\n\n".join(
+        f"[{r['document']}] (relevance {r['score']})\n{r['content'][:800]}"
+        for r in results)
+
+
+@tool(
+    name="run_python",
+    description="Execute a short Python script in a SANDBOX (no network, file writes "
+                "confined to a temp folder, 20s timeout) and return stdout/stderr. "
+                "Use for calculations, data transforms, or verifying code you wrote.",
+    parameters={
+        "type": "object",
+        "properties": {"code": {"type": "string"}},
+        "required": ["code"],
+    },
+    risk="confirm",
+    agent_tags=["coding"],
+)
+async def run_python(code: str) -> str:
+    from ...sandbox import runner
+    result = await runner.run(code, "python")
+    if result.get("error"):
+        return f"Error: {result['error']}"
+    out = f"exit code {result['exit_code']}"
+    if result["stdout"]:
+        out += f"\nstdout:\n{result['stdout']}"
+    if result["stderr"]:
+        out += f"\nstderr:\n{result['stderr']}"
+    return out
+
+
+@tool(
+    name="create_skill",
+    description="Permanently teach yourself a NEW ability by installing a plugin. Write "
+                "complete Python code using EXACTLY this framework:\n"
+                "from app.tools.base import tool\n"
+                "@tool(name='tool_name', description='when to use it', "
+                "parameters={'type':'object','properties':{...},'required':[...]}, "
+                "risk='safe'|'confirm'|'dangerous')\n"
+                "def tool_name(...) -> str: ...\n"
+                "Handlers may be async. Use subprocess+osascript for Mac apps, httpx for "
+                "web APIs. The user must approve installation; the new tools work "
+                "immediately afterwards.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "name": {"type": "string", "description": "short skill name, e.g. 'volume_control'"},
+            "code": {"type": "string", "description": "the complete plugin.py source"},
+        },
+        "required": ["name", "code"],
+    },
+    risk="dangerous",   # always requires the user's explicit approval
+)
+def create_skill(name: str, code: str) -> str:
+    from ...plugins import loader
+    try:
+        result = loader.install_skill(name, code)
+    except ValueError as e:
+        return f"Skill rejected: {e}. Fix the code and call create_skill again."
+    tools_txt = ", ".join(result["new_tools"]) or "(no new tools registered!)"
+    return (f"Skill '{result['skill']}' installed at {result['path']}. "
+            f"New tools available right now: {tools_txt}")
+
+
+@tool(
+    name="project_remember",
+    description="Save a durable fact, decision or progress note to the ACTIVE project's "
+                "memory (shown in your context as ACTIVE PROJECT). Use whenever something "
+                "worth remembering about the project happens.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "project_name": {"type": "string", "description": "the project's name"},
+            "note": {"type": "string", "description": "one self-contained fact or decision"},
+        },
+        "required": ["project_name", "note"],
+    },
+)
+def project_remember(project_name: str, note: str) -> str:
+    from ... import db
+    project = db.find_project_by_name(project_name)
+    if not project:
+        names = ", ".join(p["name"] for p in db.list_projects()) or "(no projects exist)"
+        return f"No project named '{project_name}'. Existing projects: {names}"
+    db.append_project_note(project["id"], note)
+    return f"Saved to project '{project['name']}': {note}"
+
+
+@tool(
+    name="daily_briefing",
+    description="Gather the user's daily briefing data: current weather and today's "
+                "forecast, today's calendar events, and reminders. Use when the user asks "
+                "for their briefing, their day, or what's coming up today. Present the "
+                "result as a warm, concise morning-briefing narrative.",
+    parameters={"type": "object", "properties": {}},
+    risk="confirm",
+)
+async def daily_briefing() -> str:
+    import subprocess
+
+    import httpx
+    parts = [f"Now: {datetime.datetime.now().strftime('%A, %B %d %Y, %H:%M')}"]
+
+    # weather (wttr.in geolocates by IP; no API key, local-friendly)
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get("https://wttr.in/?format=j1")
+            w = r.json()
+            cur = w["current_condition"][0]
+            today = w["weather"][0]
+            area = w.get("nearest_area", [{}])[0]
+            city = area.get("areaName", [{}])[0].get("value", "your area")
+            parts.append(
+                f"Weather in {city}: {cur['weatherDesc'][0]['value']}, "
+                f"{cur['temp_C']}°C (feels {cur['FeelsLikeC']}°C). "
+                f"Today: {today['mintempC']}–{today['maxtempC']}°C, "
+                f"sunrise {today['astronomy'][0]['sunrise']}, "
+                f"sunset {today['astronomy'][0]['sunset']}.")
+    except Exception as e:
+        parts.append(f"Weather unavailable ({e}).")
+
+    # today's calendar
+    def osa(script: str) -> str:
+        try:
+            res = subprocess.run(["osascript", "-e", script],
+                                 capture_output=True, text=True, timeout=60)
+            return res.stdout.strip()
+        except Exception:
+            return ""
+
+    events = osa('''
+    set output to ""
+    set today to current date
+    set startOfDay to today - (time of today)
+    set endOfDay to startOfDay + 1 * days
+    tell application "Calendar"
+        repeat with cal in calendars
+            set evs to (every event of cal whose start date >= startOfDay and start date < endOfDay)
+            repeat with ev in evs
+                set output to output & (start date of ev as string) & " — " & (summary of ev) & "\\n"
+            end repeat
+        end repeat
+    end tell
+    return output''')
+    parts.append("Today's calendar:\n" + (events or "No events today."))
+
+    reminders = osa('''
+    set output to ""
+    tell application "Reminders"
+        set rs to (every reminder whose completed is false)
+        repeat with r in rs
+            set output to output & "- " & (name of r) & "\\n"
+        end repeat
+    end tell
+    return output''')
+    if reminders:
+        lines = reminders.splitlines()[:10]
+        parts.append("Open reminders:\n" + "\n".join(lines))
+
+    return "\n\n".join(parts)
 
 
 @tool(

@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, OllamaModel, pullModel, statsApi } from "../lib/api";
-import { listVoices } from "../lib/voice";
+import { API, api, OllamaModel, pullModel, statsApi } from "../lib/api";
 
 function Row(props: { label: string; sub?: string; children: React.ReactNode }) {
   return (
@@ -33,17 +32,113 @@ export function SettingsPage(props: {
   const [pullName, setPullName] = useState("");
   const [pullStatus, setPullStatus] = useState<{ text: string; pct: number } | null>(null);
   const [tools, setTools] = useState<any[]>([]);
-  const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [engines, setEngines] = useState<any[]>([]);
+  const [kokoroVoices, setKokoroVoices] = useState<{ id: string; name: string }[]>([]);
+  const [downloadStatus, setDownloadStatus] = useState<string>("");
 
+  const refreshEngines = () => statsApi.ttsEngines().then(setEngines).catch(() => {});
   const refreshModels = () => api.models().then((r) => setModels(r.models)).catch(() => {});
   useEffect(() => {
     refreshModels();
+    refreshEngines();
     api.tools().then(setTools).catch(() => {});
-    statsApi.ttsEngines().then(setEngines).catch(() => {});
-    setVoices(listVoices());
-    speechSynthesis.onvoiceschanged = () => setVoices(listVoices());
+    fetch(`${API}/tts/voices`).then((r) => r.json()).then(setKokoroVoices).catch(() => {});
   }, []);
+
+  const kokoroReady = engines.find((e: any) => e.id === "kokoro")?.available === true;
+
+  const [benchResults, setBenchResults] = useState<Record<string, string>>({});
+  const [benching, setBenching] = useState<string>("");
+
+  const runBenchmark = async (name: string) => {
+    setBenching(name);
+    try {
+      const res = await fetch(`${API}/models/benchmark`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      const r = await res.json();
+      setBenchResults((b) => ({
+        ...b,
+        [name]: r.error ? `benchmark failed: ${r.error.slice(0, 50)}`
+          : `⚡ ${r.generate_tokens_per_s} tok/s generate · ${r.prompt_tokens_per_s} tok/s prompt` +
+            (r.load_seconds > 0.5 ? ` · ${r.load_seconds}s load` : ""),
+      }));
+    } finally {
+      setBenching("");
+    }
+  };
+
+  const [sttStatus, setSttStatus] = useState<any>(null);
+  const [sttDownload, setSttDownload] = useState<string>("");
+  const refreshStt = () =>
+    fetch(`${API}/stt/status`).then((r) => r.json()).then(setSttStatus).catch(() => {});
+  useEffect(() => { refreshStt(); }, [s?.voice?.whisper_model]);
+
+  const downloadWhisper = async () => {
+    setSttDownload("starting…");
+    try {
+      const res = await fetch(`${API}/stt/download`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: s?.voice?.whisper_model ?? "base" }),
+      });
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const ev = JSON.parse(line);
+          if (ev.error) setSttDownload(`failed: ${ev.error.slice(0, 60)}`);
+          else if (ev.percent !== undefined) setSttDownload(`${ev.percent}% (${ev.mb} MB)`);
+          if (ev.done) {
+            setSttDownload("");
+            refreshStt();
+          }
+        }
+      }
+    } catch (e: any) {
+      setSttDownload(`failed: ${e.message}`);
+    }
+  };
+
+  const downloadKokoro = async () => {
+    setDownloadStatus("starting…");
+    try {
+      const res = await fetch(`${API}/tts/kokoro/download`, { method: "POST" });
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buf = "";
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buf += decoder.decode(value, { stream: true });
+        const lines = buf.split("\n");
+        buf = lines.pop() ?? "";
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const ev = JSON.parse(line);
+          if (ev.error) setDownloadStatus(`failed: ${ev.error.slice(0, 60)}`);
+          else if (ev.percent !== undefined)
+            setDownloadStatus(`${ev.file} — ${ev.percent}% (${ev.mb} MB)`);
+          else if (ev.status) setDownloadStatus(`${ev.file ?? ""} ${ev.status}`);
+          if (ev.done) {
+            setDownloadStatus("");
+            refreshEngines();
+          }
+        }
+      }
+    } catch (e: any) {
+      setDownloadStatus(`failed: ${e.message}`);
+    }
+  };
 
   if (!s) return <div className="page">Loading…</div>;
 
@@ -118,14 +213,40 @@ export function SettingsPage(props: {
         </div>
 
         <div className="panel">
+          <h3>Task models</h3>
+          <div className="sub" style={{ marginBottom: 8 }}>
+            Assign specialized models per task. Empty = use the main chat model.
+            A small utility model makes titles and self-analysis near-instant.
+          </div>
+          {([["coding", "Coding", "Code Studio and the coding agent"],
+             ["utility", "Utility", "Titles, gap analysis, background summaries"]] as const)
+            .map(([key, label, sub]) => (
+            <Row key={key} label={label} sub={sub}>
+              <select value={s.ollama.task_models?.[key] ?? ""}
+                      onChange={(e) => props.onPatch({ ollama: { task_models: { [key]: e.target.value } } })}>
+                <option value="">Same as chat model</option>
+                {models.map((m) => <option key={m.name} value={m.name}>{m.name}</option>)}
+              </select>
+            </Row>
+          ))}
+        </div>
+
+        <div className="panel">
           <h3>Installed models</h3>
           {models.map((m) => (
             <Row key={m.name} label={m.name}
-                 sub={`${(m.size / 1e9).toFixed(1)} GB ${m.details?.quantization_level ?? ""}`}>
-              <button className="btn danger"
-                      onClick={() => api.deleteModel(m.name).then(refreshModels)}>
-                Remove
-              </button>
+                 sub={benchResults[m.name]
+                      ?? `${(m.size / 1e9).toFixed(1)} GB ${m.details?.quantization_level ?? ""}`}>
+              <div style={{ display: "flex", gap: 6 }}>
+                <button className="btn" disabled={benching === m.name}
+                        onClick={() => runBenchmark(m.name)}>
+                  {benching === m.name ? "Benchmarking…" : "⏱ Benchmark"}
+                </button>
+                <button className="btn danger"
+                        onClick={() => api.deleteModel(m.name).then(refreshModels)}>
+                  Remove
+                </button>
+              </div>
             </Row>
           ))}
           <Row label="Download a model" sub="Any model from ollama.com/library">
@@ -169,18 +290,37 @@ export function SettingsPage(props: {
             <Toggle checked={s.voice.tts_enabled}
                     onChange={(v) => props.onPatch({ voice: { tts_enabled: v } })} />
           </Row>
-          <Row label="Speech engine"
-               sub="Browser = built-in voices. Piper = local neural TTS (brew install piper-tts + a voice model). New engines and voice clones plug in via backend/app/speech/engines.py.">
-            <select value={s.voice.tts_engine ?? "browser"}
+          <Row label="Voice engine"
+               sub="Kokoro is a local neural engine with human-sounding voices (recommended). If it isn't ready, Jarvis falls back to the basic system voice.">
+            <select value={s.voice.tts_engine ?? "kokoro"}
                     onChange={(e) => props.onPatch({ voice: { tts_engine: e.target.value } })}>
-              {(engines.length ? engines : [{ id: "browser", name: "Browser voices", available: true, reason: "" }])
+              {(engines.length ? engines : [{ id: "kokoro", name: "Kokoro (human, local)", available: false, reason: "backend offline" }])
                 .map((e: any) => (
-                  <option key={e.id} value={e.id} disabled={!e.available}>
+                  <option key={e.id} value={e.id}>
                     {e.name}{e.available ? "" : ` — ${e.reason}`}
                   </option>
                 ))}
             </select>
           </Row>
+          {(s.voice.tts_engine ?? "kokoro") === "kokoro" && (
+            kokoroReady ? (
+              <Row label="Jarvis voice" sub="Neural voices — all sound natural and human">
+                <select value={s.voice.kokoro_voice ?? "bm_george"}
+                        onChange={(e) => props.onPatch({ voice: { kokoro_voice: e.target.value } })}>
+                  {kokoroVoices.map((v) => <option key={v.id} value={v.id}>{v.name}</option>)}
+                </select>
+              </Row>
+            ) : (
+              <Row label="Voice model" sub="One-time download (~340 MB) from the Kokoro release on GitHub; stored locally in ~/.jarvis/models">
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, alignItems: "flex-end" }}>
+                  <button className="btn primary" disabled={!!downloadStatus && !downloadStatus.startsWith("failed")}
+                          onClick={downloadKokoro}>
+                    {downloadStatus ? downloadStatus : "Download human voices"}
+                  </button>
+                </div>
+              </Row>
+            )
+          )}
           {s.voice.tts_engine === "piper" && (
             <Row label="Piper voice model" sub="Path to a .onnx voice, e.g. ~/piper/en_US-lessac-medium.onnx">
               <input type="text" value={s.voice.piper_voice_path ?? ""}
@@ -188,17 +328,39 @@ export function SettingsPage(props: {
                      onChange={(e) => props.onPatch({ voice: { piper_voice_path: e.target.value } })} />
             </Row>
           )}
-          <Row label="Voice">
-            <select value={s.voice.tts_voice}
-                    onChange={(e) => props.onPatch({ voice: { tts_voice: e.target.value } })}>
-              <option value="">System default</option>
-              {voices.map((v) => <option key={v.name} value={v.name}>{v.name}</option>)}
-            </select>
-          </Row>
           <Row label="Speech rate">
             <input type="number" step={0.1} min={0.5} max={2} value={s.voice.tts_rate}
                    onChange={(e) => props.onPatch({ voice: { tts_rate: parseFloat(e.target.value) || 1 } })} />
           </Row>
+          <Row label="Speech recognition"
+               sub="Whisper runs 100% offline on your Mac and works in every browser. Browser mode needs Chrome and sends audio to Google.">
+            <select value={s.voice.stt_engine ?? "whisper"}
+                    onChange={(e) => props.onPatch({ voice: { stt_engine: e.target.value } })}>
+              <option value="whisper">Whisper (offline, recommended)</option>
+              <option value="browser">Browser (Chrome, online)</option>
+            </select>
+          </Row>
+          {(s.voice.stt_engine ?? "whisper") === "whisper" && (
+            <Row label="Whisper model"
+                 sub={sttStatus?.available
+                      ? `'${sttStatus.model}' ready — recognition is fully local`
+                      : "tiny 75 MB (fastest) · base 145 MB (recommended) · small 484 MB (most accurate)"}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <select value={s.voice.whisper_model ?? "base"}
+                        onChange={(e) => props.onPatch({ voice: { whisper_model: e.target.value } })}>
+                  <option value="tiny">tiny</option>
+                  <option value="base">base</option>
+                  <option value="small">small</option>
+                </select>
+                {sttStatus && !sttStatus.available && (
+                  <button className="btn primary" disabled={!!sttDownload && !sttDownload.startsWith("failed")}
+                          onClick={downloadWhisper}>
+                    {sttDownload || "Download"}
+                  </button>
+                )}
+              </div>
+            </Row>
+          )}
           <Row label="Language" sub="Speech recognition language, e.g. en-US">
             <input type="text" value={s.voice.language}
                    onChange={(e) => props.onPatch({ voice: { language: e.target.value } })} />
@@ -244,13 +406,61 @@ export function SettingsPage(props: {
 
         <div className="panel">
           <h3>Appearance</h3>
-          <Row label="Theme">
+          <Row label="Theme" sub="Color scheme for the whole app">
             <select value={s.ui.theme}
                     onChange={(e) => props.onPatch({ ui: { theme: e.target.value } })}>
-              <option value="dark">Dark</option>
+              <option value="hacker">Hacker green</option>
+              <option value="dark">Dark blue</option>
               <option value="light">Light</option>
-              <option value="system">System</option>
+              <option value="cyberpunk">Cyberpunk</option>
+              <option value="system">System (dark/light)</option>
             </select>
+          </Row>
+          <Row label="Core design" sub="The AI visualization in the center — you can also click the core itself to cycle designs">
+            <select value={s.ui.core_design ?? "orb"}
+                    onChange={(e) => props.onPatch({ ui: { core_design: e.target.value } })}>
+              <option value="orb">Orb (particles)</option>
+              <option value="reactor">Arc reactor</option>
+              <option value="halo">Halo (minimal)</option>
+              <option value="nebula">Nebula swarm</option>
+            </select>
+          </Row>
+          <Row label="Accent color" sub="Overrides the theme's color everywhere — core, buttons, glow">
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <input type="color" value={s.ui.accent || "#00ff66"}
+                     style={{ width: 44, height: 30, padding: 0, border: "1px solid var(--border)",
+                              borderRadius: 6, background: "none", cursor: "pointer" }}
+                     onChange={(e) => props.onPatch({ ui: { accent: e.target.value } })} />
+              {s.ui.accent && (
+                <button className="btn" onClick={() => props.onPatch({ ui: { accent: "" } })}>
+                  Reset
+                </button>
+              )}
+            </div>
+          </Row>
+          <Row label="Background" sub="Theme default, Matrix rain animation, or a custom color">
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <select
+                value={["matrix", "world"].includes(s.ui.background) ? s.ui.background
+                       : s.ui.background ? "custom" : "default"}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  props.onPatch({ ui: { background:
+                    v === "matrix" || v === "world" ? v
+                    : v === "custom" ? "#010804" : "" } });
+                }}>
+                <option value="default">Theme default</option>
+                <option value="matrix">Matrix rain</option>
+                <option value="world">World map (data streams)</option>
+                <option value="custom">Custom color</option>
+              </select>
+              {s.ui.background && !["matrix", "world"].includes(s.ui.background) && (
+                <input type="color" value={s.ui.background}
+                       style={{ width: 44, height: 30, padding: 0, border: "1px solid var(--border)",
+                                borderRadius: 6, background: "none", cursor: "pointer" }}
+                       onChange={(e) => props.onPatch({ ui: { background: e.target.value } })} />
+              )}
+            </div>
           </Row>
           <Row label="Glass effect" sub="Translucent panels with blur">
             <Toggle checked={s.ui.glass}

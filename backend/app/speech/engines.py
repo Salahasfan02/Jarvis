@@ -87,6 +87,115 @@ class PiperEngine(TTSEngine):
             out.unlink(missing_ok=True)
 
 
+class KokoroEngine(TTSEngine):
+    """Kokoro — local neural TTS with genuinely human-sounding voices.
+    Uses the kokoro-onnx runtime; the model (~340 MB total) is downloaded
+    once from Settings > Voice and stored in ~/.jarvis/models/kokoro."""
+    id = "kokoro"
+    name = "Kokoro (human, local)"
+
+    MODELS_DIR = None  # set below
+    MODEL_URL = ("https://github.com/thewh1teagle/kokoro-onnx/releases/download/"
+                 "model-files-v1.0/kokoro-v1.0.onnx")
+    VOICES_URL = ("https://github.com/thewh1teagle/kokoro-onnx/releases/download/"
+                  "model-files-v1.0/voices-v1.0.bin")
+
+    def __init__(self) -> None:
+        from ..config import JARVIS_HOME
+        self.models_dir = JARVIS_HOME / "models" / "kokoro"
+        self.models_dir.mkdir(parents=True, exist_ok=True)
+        self._kokoro = None
+
+    @property
+    def model_path(self) -> Path:
+        return self.models_dir / "kokoro-v1.0.onnx"
+
+    @property
+    def voices_path(self) -> Path:
+        return self.models_dir / "voices-v1.0.bin"
+
+    def files_present(self) -> bool:
+        return (self.model_path.exists() and self.model_path.stat().st_size > 100e6
+                and self.voices_path.exists() and self.voices_path.stat().st_size > 1e6)
+
+    def available(self) -> bool:
+        try:
+            import kokoro_onnx  # noqa: F401
+        except ImportError:
+            return False
+        return self.files_present()
+
+    def unavailable_reason(self) -> str:
+        try:
+            import kokoro_onnx  # noqa: F401
+        except ImportError:
+            return "pip install kokoro-onnx in the backend environment"
+        if not self.files_present():
+            return "voice model not downloaded yet (~340 MB, one time)"
+        return ""
+
+    def _load(self):
+        if self._kokoro is None:
+            from kokoro_onnx import Kokoro
+            self._kokoro = Kokoro(str(self.model_path), str(self.voices_path))
+        return self._kokoro
+
+    async def synthesize(self, text: str) -> bytes | None:
+        if not self.available():
+            return None
+        voice = settings.get("voice.kokoro_voice", "bm_george")
+
+        def run() -> bytes:
+            import io
+            import wave
+
+            import numpy as np
+            kokoro = self._load()
+            samples, sample_rate = kokoro.create(text, voice=voice, speed=1.0,
+                                                 lang="en-us")
+            pcm = (np.clip(samples, -1, 1) * 32767).astype(np.int16)
+            buf = io.BytesIO()
+            with wave.open(buf, "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(sample_rate)
+                wav.writeframes(pcm.tobytes())
+            return buf.getvalue()
+
+        try:
+            return await asyncio.wait_for(asyncio.to_thread(run), timeout=120)
+        except (asyncio.TimeoutError, Exception):
+            return None
+
+    async def download(self):
+        """Stream-download the model files, yielding progress events."""
+        import httpx
+        for url, dest in ((self.MODEL_URL, self.model_path),
+                          (self.VOICES_URL, self.voices_path)):
+            if dest.exists() and dest.stat().st_size > 1e6:
+                yield {"file": dest.name, "status": "already downloaded"}
+                continue
+            tmp = dest.with_suffix(".part")
+            async with httpx.AsyncClient(timeout=None, follow_redirects=True) as client:
+                async with client.stream("GET", url) as r:
+                    r.raise_for_status()
+                    total = int(r.headers.get("content-length", 0))
+                    done = 0
+                    last_pct = -5
+                    with tmp.open("wb") as f:
+                        async for chunk in r.aiter_bytes(1024 * 512):
+                            f.write(chunk)
+                            done += len(chunk)
+                            pct = int(done * 100 / total) if total else 0
+                            if pct >= last_pct + 5:
+                                last_pct = pct
+                                yield {"file": dest.name, "percent": pct,
+                                       "mb": round(done / 1e6)}
+            tmp.rename(dest)
+            yield {"file": dest.name, "status": "done"}
+        self._kokoro = None  # force reload with fresh files
+
+
 ENGINES: dict[str, TTSEngine] = {}
 
 
@@ -94,8 +203,23 @@ def register(engine: TTSEngine) -> None:
     ENGINES[engine.id] = engine
 
 
-register(BrowserEngine())
+register(KokoroEngine())
 register(PiperEngine())
+register(BrowserEngine())
+
+KOKORO_VOICES = [
+    {"id": "bm_george", "name": "George — British male (JARVIS-like)"},
+    {"id": "bm_fable", "name": "Fable — British male"},
+    {"id": "bm_lewis", "name": "Lewis — British male"},
+    {"id": "bm_daniel", "name": "Daniel — British male"},
+    {"id": "bf_emma", "name": "Emma — British female"},
+    {"id": "bf_isabella", "name": "Isabella — British female"},
+    {"id": "am_michael", "name": "Michael — American male"},
+    {"id": "am_adam", "name": "Adam — American male"},
+    {"id": "af_heart", "name": "Heart — American female (highest quality)"},
+    {"id": "af_bella", "name": "Bella — American female"},
+    {"id": "af_sky", "name": "Sky — American female"},
+]
 
 
 def list_engines() -> list[dict]:

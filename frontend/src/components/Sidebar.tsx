@@ -1,11 +1,12 @@
 import { useState } from "react";
 import { Conversation } from "../lib/api";
 
-export type Page = "core" | "chat" | "settings" | "memory" | "dev" | "registry";
+export type Page = "core" | "chat" | "code" | "projects" | "settings" | "memory" | "dev" | "registry";
 
 const NAV: { id: Page; icon: string; label: string }[] = [
   { id: "core", icon: "◉", label: "Core" },
-  { id: "chat", icon: "💬", label: "Chat" },
+  { id: "chat", icon: "💬", label: "Workspace" },
+  { id: "projects", icon: "📁", label: "Projects" },
   { id: "memory", icon: "🧠", label: "Memory" },
   { id: "registry", icon: "📋", label: "Capabilities" },
   { id: "dev", icon: "🛠", label: "Developer" },
@@ -87,7 +88,9 @@ export function Sidebar(props: {
             className={`conv-item ${c.id === props.activeId && props.page === "chat" ? "active" : ""}`}
             onClick={() => props.onSelect(c.id)}
           >
-            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{c.title}</span>
+            <span style={{ overflow: "hidden", textOverflow: "ellipsis" }}>
+              {c.mode === "code" ? "⌨ " : ""}{c.title}
+            </span>
             <button
               className="del"
               title="Delete conversation"

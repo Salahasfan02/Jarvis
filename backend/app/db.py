@@ -44,6 +44,38 @@ CREATE TABLE IF NOT EXISTS capability_gaps (
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS projects (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    notes TEXT NOT NULL DEFAULT '',
+    created_at REAL NOT NULL,
+    updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS attachments (
+    id TEXT PRIMARY KEY,
+    conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+    name TEXT NOT NULL,
+    kind TEXT NOT NULL DEFAULT 'file',
+    content_text TEXT NOT NULL DEFAULT '',
+    image_b64 TEXT,
+    created_at REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_attach_conv ON attachments(conversation_id);
+CREATE TABLE IF NOT EXISTS documents (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    chunk_count INTEGER NOT NULL DEFAULT 0,
+    created_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS doc_chunks (
+    id TEXT PRIMARY KEY,
+    doc_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL,
+    content TEXT NOT NULL,
+    embedding TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_chunks_doc ON doc_chunks(doc_id, seq);
 CREATE TABLE IF NOT EXISTS memories (
     id TEXT PRIMARY KEY,
     content TEXT NOT NULL,
@@ -70,19 +102,139 @@ def connect():
 def init_db() -> None:
     with connect() as conn:
         conn.executescript(SCHEMA)
+        # migrations for pre-existing databases
+        try:
+            conn.execute("ALTER TABLE conversations ADD COLUMN mode TEXT NOT NULL DEFAULT 'chat'")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+        try:
+            conn.execute("ALTER TABLE conversations ADD COLUMN project_id TEXT")
+        except sqlite3.OperationalError:
+            pass
 
 
 # --- conversations -----------------------------------------------------------
 
-def create_conversation(title: str = "New conversation") -> dict:
+def create_conversation(title: str = "New conversation", mode: str = "chat") -> dict:
     now = time.time()
-    conv = {"id": uuid.uuid4().hex, "title": title, "folder": "",
+    conv = {"id": uuid.uuid4().hex, "title": title, "folder": "", "mode": mode,
             "created_at": now, "updated_at": now}
     with connect() as conn:
         conn.execute(
-            "INSERT INTO conversations (id, title, folder, created_at, updated_at) VALUES (?,?,?,?,?)",
-            (conv["id"], conv["title"], conv["folder"], now, now))
+            "INSERT INTO conversations (id, title, folder, mode, created_at, updated_at) VALUES (?,?,?,?,?,?)",
+            (conv["id"], conv["title"], conv["folder"], mode, now, now))
     return conv
+
+
+def set_conversation_mode(conv_id: str, mode: str) -> None:
+    with connect() as conn:
+        conn.execute("UPDATE conversations SET mode=? WHERE id=?", (mode, conv_id))
+
+
+def get_conversation(conv_id: str) -> dict | None:
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM conversations WHERE id=?", (conv_id,)).fetchone()
+    return dict(row) if row else None
+
+
+# --- projects ------------------------------------------------------------------
+
+def create_project(name: str, description: str = "") -> dict:
+    now = time.time()
+    proj = {"id": uuid.uuid4().hex, "name": name, "description": description,
+            "notes": "", "created_at": now, "updated_at": now}
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO projects (id, name, description, notes, created_at, updated_at) "
+            "VALUES (?,?,?,?,?,?)",
+            (proj["id"], name, description, "", now, now))
+    return proj
+
+
+def list_projects() -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute("SELECT * FROM projects ORDER BY updated_at DESC").fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_project(proj_id: str) -> dict | None:
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM projects WHERE id=?", (proj_id,)).fetchone()
+    return dict(row) if row else None
+
+
+def find_project_by_name(name: str) -> dict | None:
+    with connect() as conn:
+        row = conn.execute(
+            "SELECT * FROM projects WHERE LOWER(name)=LOWER(?)", (name,)).fetchone()
+    return dict(row) if row else None
+
+
+def update_project(proj_id: str, fields: dict) -> None:
+    allowed = {k: v for k, v in fields.items()
+               if k in ("name", "description", "notes")}
+    if not allowed:
+        return
+    with connect() as conn:
+        conn.execute(
+            f"UPDATE projects SET {', '.join(f'{k}=?' for k in allowed)}, updated_at=? WHERE id=?",
+            (*allowed.values(), time.time(), proj_id))
+
+
+def append_project_note(proj_id: str, note: str) -> None:
+    stamp = time.strftime("%Y-%m-%d")
+    with connect() as conn:
+        conn.execute(
+            "UPDATE projects SET notes = notes || ?, updated_at=? WHERE id=?",
+            (f"\n- [{stamp}] {note}", time.time(), proj_id))
+
+
+def delete_project(proj_id: str) -> None:
+    with connect() as conn:
+        conn.execute("UPDATE conversations SET project_id=NULL WHERE project_id=?", (proj_id,))
+        conn.execute("DELETE FROM projects WHERE id=?", (proj_id,))
+
+
+def set_conversation_project(conv_id: str, proj_id: str | None) -> None:
+    with connect() as conn:
+        conn.execute("UPDATE conversations SET project_id=? WHERE id=?", (proj_id, conv_id))
+
+
+def conversations_in_project(proj_id: str) -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            "SELECT id, title, mode, updated_at FROM conversations "
+            "WHERE project_id=? ORDER BY updated_at DESC", (proj_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+# --- attachments ---------------------------------------------------------------
+
+def add_attachment(conv_id: str, name: str, kind: str, content_text: str,
+                   image_b64: str | None = None) -> dict:
+    now = time.time()
+    att = {"id": uuid.uuid4().hex, "conversation_id": conv_id, "name": name,
+           "kind": kind, "created_at": now}
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO attachments (id, conversation_id, name, kind, content_text, image_b64, created_at) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (att["id"], conv_id, name, kind, content_text, image_b64, now))
+    return att
+
+
+def list_attachments(conv_id: str, with_content: bool = False) -> list[dict]:
+    cols = "*" if with_content else "id, conversation_id, name, kind, created_at"
+    with connect() as conn:
+        rows = conn.execute(
+            f"SELECT {cols} FROM attachments WHERE conversation_id=? ORDER BY created_at",
+            (conv_id,)).fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_attachment(att_id: str) -> None:
+    with connect() as conn:
+        conn.execute("DELETE FROM attachments WHERE id=?", (att_id,))
 
 
 def list_conversations() -> list[dict]:
@@ -214,6 +366,47 @@ def update_gap(gap_id: str, fields: dict) -> None:
 def delete_gap(gap_id: str) -> None:
     with connect() as conn:
         conn.execute("DELETE FROM capability_gaps WHERE id=?", (gap_id,))
+
+
+# --- knowledge documents -------------------------------------------------------
+
+def add_document(name: str, chunks: list[tuple[str, list[float] | None]]) -> dict:
+    now = time.time()
+    doc_id = uuid.uuid4().hex
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO documents (id, name, chunk_count, created_at) VALUES (?,?,?,?)",
+            (doc_id, name, len(chunks), now))
+        conn.executemany(
+            "INSERT INTO doc_chunks (id, doc_id, seq, content, embedding) VALUES (?,?,?,?,?)",
+            [(uuid.uuid4().hex, doc_id, i, content,
+              json.dumps(emb) if emb else None)
+             for i, (content, emb) in enumerate(chunks)])
+    return {"id": doc_id, "name": name, "chunk_count": len(chunks), "created_at": now}
+
+
+def list_documents() -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute("SELECT * FROM documents ORDER BY created_at DESC").fetchall()
+    return [dict(r) for r in rows]
+
+
+def delete_document(doc_id: str) -> None:
+    with connect() as conn:
+        conn.execute("DELETE FROM documents WHERE id=?", (doc_id,))
+
+
+def all_chunks() -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute(
+            """SELECT c.id, c.doc_id, c.seq, c.content, c.embedding, d.name AS doc_name
+               FROM doc_chunks c JOIN documents d ON d.id = c.doc_id""").fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["embedding"] = json.loads(d["embedding"]) if d["embedding"] else None
+        out.append(d)
+    return out
 
 
 # --- memories ----------------------------------------------------------------

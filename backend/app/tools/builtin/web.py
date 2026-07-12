@@ -23,16 +23,23 @@ def _strip_html(html: str, limit: int = 8000) -> str:
 
 @tool(
     name="web_search",
-    description="Search the web. Returns a list of result titles, URLs and snippets. "
-                "Use for current events, facts you're unsure about, weather, prices, news.",
+    description="Search the web. Returns result titles, URLs and snippets — always cite "
+                "these URLs when you use the information. Use for current events, facts, "
+                "weather, prices, news. Optional `site` scopes the search: github.com, "
+                "stackoverflow.com, reddit.com, youtube.com, arxiv.org, or any domain.",
     parameters={
         "type": "object",
-        "properties": {"query": {"type": "string", "description": "search query"}},
+        "properties": {
+            "query": {"type": "string", "description": "search query"},
+            "site": {"type": "string", "description": "optional domain to restrict to"},
+        },
         "required": ["query"],
     },
     agent_tags=["research"],
 )
-async def web_search(query: str) -> str:
+async def web_search(query: str, site: str = "") -> str:
+    if site:
+        query = f"site:{site.strip()} {query}"
     async with httpx.AsyncClient(timeout=15, headers=UA, follow_redirects=True) as client:
         r = await client.post("https://html.duckduckgo.com/html/", data={"q": query})
         r.raise_for_status()

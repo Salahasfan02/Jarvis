@@ -2,11 +2,92 @@ import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeHighlight from "rehype-highlight";
 import remarkGfm from "remark-gfm";
-import { Message } from "../lib/api";
+import { API, Message } from "../lib/api";
+
+const RUNNABLE = ["python", "py", "javascript", "js", "typescript", "ts",
+  "bash", "sh", "html", "c", "cpp", "c++", "go", "rust", "java"];
+
+function textOf(node: any): string {
+  if (typeof node === "string") return node;
+  if (Array.isArray(node)) return node.map(textOf).join("");
+  if (node?.props?.children) return textOf(node.props.children);
+  return "";
+}
+
+/** Fenced code blocks in chat get a toolbar: Copy always, Run when the
+ *  language is executable in the sandbox. */
+function PreBlock(props: any) {
+  const child = Array.isArray(props.children) ? props.children[0] : props.children;
+  const cls: string = child?.props?.className ?? "";
+  const lang = (cls.match(/language-([\w+#-]+)/)?.[1] ?? "").toLowerCase();
+  const code = textOf(child);
+  const [result, setResult] = useState<any>(null);
+  const [running, setRunning] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const runnable = RUNNABLE.includes(lang) && code.trim().length > 0;
+
+  const run = async () => {
+    setRunning(true);
+    setResult(null);
+    try {
+      const res = await fetch(`${API}/code/run`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ code, language: lang }),
+      });
+      setResult(await res.json());
+    } catch (e: any) {
+      setResult({ error: e.message });
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="codeblock">
+      <div className="codeblock-bar">
+        <span>{lang || "code"}</span>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button onClick={() => {
+            navigator.clipboard.writeText(code);
+            setCopied(true);
+            setTimeout(() => setCopied(false), 1200);
+          }}>{copied ? "✓" : "copy"}</button>
+          {runnable && (
+            <button onClick={run} disabled={running}>
+              {running ? "running…" : "▶ run"}
+            </button>
+          )}
+        </div>
+      </div>
+      <pre {...props} />
+      {result && (
+        <div className={`run-output ${result.error || result.exit_code ? "failed" : "passed"}`}>
+          <div className="run-head">
+            {result.error ? `⚠ ${result.error}`
+              : result.preview_url ? "✓ built"
+              : result.exit_code === 0 ? `✓ ran in ${result.seconds ?? "?"}s (sandboxed)`
+              : `✗ exit code ${result.exit_code}`}
+          </div>
+          {result.preview_url && (
+            <div style={{ padding: "8px 14px" }}>
+              <a href={result.preview_url} target="_blank" rel="noreferrer"
+                 style={{ color: "var(--accent)" }}>
+                ↗ open live preview
+              </a>
+            </div>
+          )}
+          {result.stdout && <pre>{result.stdout}</pre>}
+          {result.stderr && <pre className="stderr">{result.stderr}</pre>}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export interface ToolChipInfo {
   name: string;
-  status: "running" | "done" | "denied";
+  status: "pending" | "running" | "done" | "denied";
   result?: string;
 }
 
@@ -20,7 +101,8 @@ export interface ConfirmRequest {
 function Bubble({ content }: { content: string }) {
   return (
     <div className="bubble">
-      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}>
+      <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeHighlight]}
+                     components={{ pre: PreBlock }}>
         {content}
       </ReactMarkdown>
     </div>
@@ -100,8 +182,11 @@ export function ChatView(props: {
           <div className="msg assistant">
             {props.agentName && <div className="msg-meta">{props.agentName}</div>}
             {props.chips.map((c, i) => (
-              <span key={i} className={`chip ${c.status === "denied" ? "denied" : ""}`}>
-                {c.status === "running" ? <span className="spinner" /> : c.status === "denied" ? "⛔" : "✓"}
+              <span key={i} className={`chip ${c.status === "denied" ? "denied" : ""}`}
+                    style={c.status === "pending" ? { opacity: 0.45 } : undefined}>
+                {c.status === "running" ? <span className="spinner" />
+                  : c.status === "denied" ? "⛔"
+                  : c.status === "pending" ? "•" : "✓"}
                 {c.name}
               </span>
             ))}

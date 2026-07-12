@@ -5,7 +5,7 @@ import { Gap, gapsApi } from "../lib/api";
 
 const PRIORITY_ORDER = { critical: 0, high: 1, medium: 2, low: 3 } as const;
 
-export function RegistryPage() {
+export function RegistryPage({ onFixIt }: { onFixIt?: (gap: Gap) => void }) {
   const [gaps, setGaps] = useState<Gap[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [report, setReport] = useState<string | null>(null);
@@ -102,6 +102,11 @@ export function RegistryPage() {
                   <div><b>Estimated difficulty:</b> {g.difficulty || "unknown"} ·{" "}
                     <b>first seen:</b> {new Date(g.created_at * 1000).toLocaleDateString()}</div>
                   <div className="gap-actions">
+                    {onFixIt && (
+                      <button className="btn primary" onClick={() => onFixIt(g)}>
+                        ⚡ Fix it in Code Studio
+                      </button>
+                    )}
                     <button className="btn"
                             onClick={() => gapsApi.patch(g.id, { status: "completed" }).then(refresh)}>
                       ✓ Mark completed

@@ -108,6 +108,21 @@ def music_state() -> dict:
     return {"running": True, "state": parts[0], "track": parts[1], "artist": parts[2]}
 
 
+_refresh_task: asyncio.Task | None = None
+
+
+async def snapshot_nowait() -> dict:
+    """Never block the chat: return the cached snapshot immediately and, if it
+    is stale, refresh it in the background for the NEXT message."""
+    global _refresh_task
+    if not settings.get("context.enabled", True):
+        return {"enabled": False}
+    stale = time.time() - _cache["ts"] >= _cache["ttl"]
+    if stale and (_refresh_task is None or _refresh_task.done()):
+        _refresh_task = asyncio.create_task(snapshot(force=True))
+    return _cache["data"] or {"enabled": True, "warming": True}
+
+
 async def snapshot(force: bool = False) -> dict:
     """Full context snapshot, cached briefly. Runs in a thread (osascript is slow)."""
     if not settings.get("context.enabled", True):

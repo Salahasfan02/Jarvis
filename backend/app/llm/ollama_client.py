@@ -22,6 +22,44 @@ def _host() -> str:
     return settings.get("ollama.host", "http://localhost:11434").rstrip("/")
 
 
+def model_for(task: str | None = None) -> str:
+    """Resolve the model for a task ('coding', 'utility', ...); falls back to
+    the main chat model when no override is configured."""
+    if task:
+        override = settings.get(f"ollama.task_models.{task}", "")
+        if override:
+            return override
+    return settings.get("ollama.model")
+
+
+async def benchmark(model: str) -> dict:
+    """One-shot performance measurement using Ollama's own timing metrics."""
+    payload = {
+        "model": model,
+        "messages": [{"role": "user",
+                      "content": "Write exactly two sentences about the ocean."}],
+        "stream": False,
+        "options": {"num_ctx": 4096},
+        "keep_alive": settings.get("ollama.keep_alive", "30m"),
+    }
+    async with httpx.AsyncClient(timeout=600) as client:
+        r = await client.post(f"{_host()}/api/chat", json=payload)
+        r.raise_for_status()
+        d = r.json()
+    ns = 1e9
+    prompt_tps = (d.get("prompt_eval_count", 0) /
+                  (d.get("prompt_eval_duration", 1) / ns)) if d.get("prompt_eval_duration") else 0
+    gen_tps = (d.get("eval_count", 0) /
+               (d.get("eval_duration", 1) / ns)) if d.get("eval_duration") else 0
+    return {
+        "model": model,
+        "load_seconds": round(d.get("load_duration", 0) / ns, 2),
+        "prompt_tokens_per_s": round(prompt_tps),
+        "generate_tokens_per_s": round(gen_tps, 1),
+        "total_seconds": round(d.get("total_duration", 0) / ns, 2),
+    }
+
+
 def _options() -> dict[str, Any]:
     opts: dict[str, Any] = {
         "temperature": settings.get("ollama.temperature", 0.7),

@@ -26,6 +26,50 @@ REPO_PLUGINS = Path(__file__).resolve().parents[3] / "plugins"
 loaded: list[dict] = []
 
 
+def install_skill(name: str, code: str) -> dict:
+    """Validate and hot-install a new plugin (a self-taught skill).
+
+    The code is syntax-checked and test-imported BEFORE being written; the
+    live registry picks the new tools up immediately. Raises ValueError with
+    a readable message on any problem so the caller (LLM or UI) can fix it.
+    """
+    import re
+
+    from ..tools.base import registry
+
+    slug = re.sub(r"[^a-z0-9_]+", "_", name.lower()).strip("_")
+    if not slug:
+        raise ValueError("invalid skill name")
+    if "@tool(" not in code or "from app.tools.base import tool" not in code:
+        raise ValueError(
+            "code must use the plugin framework: `from app.tools.base import tool` "
+            "and at least one @tool(...) decorated function")
+    try:
+        compile(code, f"{slug}/plugin.py", "exec")
+    except SyntaxError as e:
+        raise ValueError(f"syntax error: {e}") from e
+
+    folder = PLUGINS_DIR / slug
+    folder.mkdir(parents=True, exist_ok=True)
+    entry = folder / "plugin.py"
+    entry.write_text(code)
+
+    before = {t.name for t in registry.all()}
+    module_name = f"jarvis_plugin_{slug}"
+    try:
+        spec = importlib.util.spec_from_file_location(module_name, entry)
+        module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+        sys.modules[module_name] = module
+        spec.loader.exec_module(module)  # type: ignore[union-attr]
+    except Exception as e:
+        entry.unlink(missing_ok=True)
+        raise ValueError(f"plugin failed to load: {e}") from e
+
+    new_tools = sorted({t.name for t in registry.all()} - before)
+    loaded.append({"name": slug, "path": str(entry), "ok": True})
+    return {"skill": slug, "path": str(entry), "new_tools": new_tools}
+
+
 def load_all() -> list[dict]:
     loaded.clear()
     for base in (REPO_PLUGINS, PLUGINS_DIR):

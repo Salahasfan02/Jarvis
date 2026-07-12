@@ -10,12 +10,29 @@
  */
 const { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, shell } = require("electron");
 const { spawn } = require("child_process");
+const fs = require("fs");
 const http = require("http");
+const os = require("os");
 const path = require("path");
 
 const DEV_URL = "http://localhost:5173";
-const PROD_INDEX = path.join(__dirname, "..", "frontend", "dist", "index.html");
-const BACKEND_DIR = path.join(__dirname, "..", "backend");
+// Packaged builds carry the UI in renderer/; dev loads Vite or the repo build.
+const PROD_INDEX = app.isPackaged
+  ? path.join(__dirname, "renderer", "index.html")
+  : path.join(__dirname, "..", "frontend", "dist", "index.html");
+
+// The Python backend lives in the repo, not inside the .app. Resolution order:
+// env var > ~/.jarvis/backend_path (written at package time) > repo-relative.
+function backendDir() {
+  if (process.env.JARVIS_BACKEND_DIR) return process.env.JARVIS_BACKEND_DIR;
+  const marker = path.join(os.homedir(), ".jarvis", "backend_path");
+  try {
+    const p = fs.readFileSync(marker, "utf8").trim();
+    if (p && fs.existsSync(p)) return p;
+  } catch { /* marker not written yet */ }
+  return path.join(__dirname, "..", "backend");
+}
+const BACKEND_DIR = backendDir();
 
 let mainWindow = null;
 let floatWindow = null;
@@ -38,8 +55,12 @@ function startBackend() {
 }
 
 function loadUI(win) {
-  if (isDev) win.loadURL(DEV_URL);
-  else win.loadFile(PROD_INDEX);
+  if (isDev && !fs.existsSync(PROD_INDEX)) win.loadURL(DEV_URL);
+  else if (isDev) {
+    // Dev with a built frontend available: prefer live Vite if it responds.
+    http.get(DEV_URL, () => win.loadURL(DEV_URL))
+      .on("error", () => win.loadFile(PROD_INDEX));
+  } else win.loadFile(PROD_INDEX);
 }
 
 function createMainWindow() {
@@ -94,9 +115,24 @@ function createTray() {
   icon.setTemplateImage(true);
   tray = new Tray(icon);
   tray.setToolTip("Jarvis");
+  rebuildTrayMenu();
+}
+
+function rebuildTrayMenu() {
+  const openAtLogin = app.getLoginItemSettings().openAtLogin;
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: "Open Jarvis", click: () => (mainWindow ? mainWindow.show() : createMainWindow()) },
     { label: "Floating assistant  ⌘⇧J", click: toggleFloatWindow },
+    { type: "separator" },
+    {
+      label: "Open at Login",
+      type: "checkbox",
+      checked: openAtLogin,
+      click: () => {
+        app.setLoginItemSettings({ openAtLogin: !openAtLogin });
+        rebuildTrayMenu();
+      },
+    },
     { type: "separator" },
     { label: "Quit", click: () => app.quit() },
   ]));
