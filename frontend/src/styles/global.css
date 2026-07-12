@@ -599,6 +599,39 @@ body {
 .codeblock pre { margin: 0; border-radius: 0; }
 .codeblock .run-output { border: none; border-top: 1px solid var(--border); border-radius: 0; margin: 0; }
 
+/* ---- quick command window (menu-bar) ---- */
+.quick { padding: 0; }
+.quick-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px; background: var(--glass);
+  backdrop-filter: blur(30px) saturate(1.4);
+  border-bottom: 1px solid var(--border);
+}
+.quick-orb {
+  width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0;
+  background: radial-gradient(circle at 32% 30%,
+      color-mix(in srgb, var(--accent) 35%, #fff), var(--accent) 60%,
+      color-mix(in srgb, var(--accent) 40%, #000));
+  box-shadow: 0 0 14px var(--accent);
+}
+.quick-bar input {
+  flex: 1; border: none; outline: none; background: none;
+  color: var(--text); font-size: 16px; font-family: var(--mono);
+}
+.quick-eye {
+  border: 1px solid var(--border); background: var(--bg-3); color: var(--text-dim);
+  border-radius: 8px; width: 34px; height: 30px; cursor: pointer; font-size: 15px;
+}
+.quick-eye.on { background: var(--accent); border-color: var(--accent); color: var(--bubble-user-text); }
+.quick-answer {
+  padding: 12px 18px; max-height: 320px; overflow-y: auto;
+  font-size: 14px; line-height: 1.55; color: #00ff66;
+  text-shadow: 0 0 6px rgba(0,255,102,0.35); font-family: var(--mono);
+}
+.quick-answer pre { background: rgba(0,0,0,0.35); padding: 10px; border-radius: 8px; overflow-x: auto; }
+.quick-dim { color: var(--text-dim); }
+.quick-hint { padding: 8px 18px; font-size: 12px; color: var(--text-dim); }
+
 /* ---- code run output ---- */
 .run-output {
   border: 1px solid var(--border); border-radius: 12px; margin: 8px 0;

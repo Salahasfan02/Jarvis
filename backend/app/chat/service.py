@@ -221,6 +221,8 @@ async def run_chat(conversation_id: str, user_content: str) -> AsyncIterator[dic
 
     # Self-improvement: analyze this turn for capability gaps (non-blocking).
     gaps.schedule_analysis(user_content, full_response, tool_events)
+    # Auto-memory: quietly learn durable facts the user shared (toggleable).
+    memory_store.schedule_auto_capture(user_content)
 
     # Auto-title new conversations from the first exchange.
     conv_msgs = db.get_messages(conversation_id)

@@ -110,6 +110,67 @@ register(Agent(
     tool_tags=["vision"]))
 
 
+# Example phrases per agent, embedded once with the configured embedding
+# model. Routing = cosine similarity against these centroids (~30 ms), far
+# smarter than keywords ("drivers open YouTube" now lands on media). Keywords
+# remain as the fallback when no embedding model is available.
+_ROUTE_EXAMPLES: dict[str, list[str]] = {
+    "media": ["play some Drake", "pause the music", "skip this song",
+              "put on a video on youtube", "resume playback", "play my playlist"],
+    "vision": ["what's on my screen right now", "what am I looking at",
+               "read the text on my screen", "take a look through the camera",
+               "describe what you see"],
+    "research": ["what's the latest AI news", "search the web for flight prices",
+                 "what's the weather tomorrow", "who won the game last night",
+                 "find documentation for FastAPI", "compare iPhone and Pixel"],
+    "coding": ["write a python script that renames files",
+               "debug this function for me", "explain this error message",
+               "refactor my code", "generate unit tests for this class"],
+    "files": ["organize the files on my desktop", "find my tax pdf in downloads",
+              "move these screenshots into a folder", "rename all the photos"],
+    "messaging": ["draft an email to my professor", "text John that I'm late",
+                  "reply to Emma's message", "summarize my messages",
+                  "did anyone text me today"],
+    "automation": ["open safari", "close spotify", "create a note about the meeting",
+                   "set a reminder for 6pm", "what's on my calendar",
+                   "copy this to my clipboard", "give me my daily briefing"],
+}
+
+_example_embeddings: dict[str, list[list[float]]] | None = None
+_embed_model_used: str = ""
+
+
+async def _ensure_example_embeddings() -> dict | None:
+    """Embed the routing examples once (rebuilt if the embed model changes)."""
+    global _example_embeddings, _embed_model_used
+    from ..config import settings
+    model = settings.get("ollama.embedding_model", "")
+    if not model:
+        return None
+    if _example_embeddings is not None and _embed_model_used == model:
+        return _example_embeddings
+    table: dict[str, list[list[float]]] = {}
+    for agent_id, examples in _ROUTE_EXAMPLES.items():
+        vectors = []
+        for phrase in examples:
+            v = await ollama_client.embed(phrase)
+            if v:
+                vectors.append(v)
+        if vectors:
+            table[agent_id] = vectors
+    _example_embeddings = table or None
+    _embed_model_used = model
+    return _example_embeddings
+
+
+def _cos(a: list[float], b: list[float]) -> float:
+    import math
+    dot = sum(x * y for x, y in zip(a, b))
+    na = math.sqrt(sum(x * x for x in a))
+    nb = math.sqrt(sum(x * x for x in b))
+    return dot / (na * nb) if na and nb else 0.0
+
+
 # Keyword routing: instant, no LLM round-trip. An extra generation per message
 # just to pick an agent was the single biggest source of reply latency.
 _ROUTE_KEYWORDS: dict[str, list[str]] = {
@@ -120,7 +181,8 @@ _ROUTE_KEYWORDS: dict[str, list[str]] = {
     "research": ["search", "news", "weather", "price", "google", "look up",
                  "latest", "who is", "what is the", "compare", "stock"],
     "coding": ["code", "function", "script", "debug", "python", "javascript",
-               "typescript", "program", "compile", "regex", "bug", "api"],
+               "typescript", "program", "compile", "regex", "bug", "api",
+               "crash", "loop", "exception", "stack trace", "error", "refactor"],
     "files": ["file", "folder", "desktop", "downloads", "organize", "rename",
               "directory", "trash", "documents"],
     "messaging": ["email", "mail", "imessage", "message", "text him", "text her",
@@ -137,15 +199,51 @@ _PLANNER_HINTS = ["plan ", "plan:", "step by step", "multi-step", "organize my d
 
 
 async def route(user_message: str) -> Agent:
-    """Pick the best agent for a message instantly via keyword scoring."""
+    """Pick the best agent: embedding similarity when available (smart),
+    keyword scoring as the zero-dependency fallback."""
     lower = f" {user_message.lower()} "
     if any(h in lower for h in _PLANNER_HINTS) or lower.strip().startswith("plan"):
         return AGENTS["planner"]
-    best_id, best_score = "general", 0
+
+    # short greetings / chit-chat stay with the generalist (no tools needed)
+    stripped = user_message.strip().lower()
+    if len(stripped) < 30 and any(stripped.startswith(g) for g in
+            ("hi", "hey", "hello", "yo ", "good morning", "good evening",
+             "how are you", "thanks", "thank you", "how's it")):
+        return AGENTS["general"]
+
+    # semantic routing
+    try:
+        table = await _ensure_example_embeddings()
+        if table:
+            query = await ollama_client.embed(user_message[:400])
+            if query:
+                best_id, best_score = "general", 0.0
+                for agent_id, vectors in table.items():
+                    score = max(_cos(query, v) for v in vectors)
+                    if score > best_score:
+                        best_id, best_score = agent_id, score
+                # keyword hits break ties / rescue borderline embedding scores
+                kw = _keyword_best(lower)
+                if best_score >= 0.58:
+                    return AGENTS.get(best_id, AGENTS["general"])
+                if kw and best_score >= 0.50 and kw == best_id:
+                    return AGENTS.get(best_id, AGENTS["general"])
+                if kw:
+                    return AGENTS.get(kw, AGENTS["general"])
+                return AGENTS["general"]
+    except Exception:
+        pass  # embedding hiccup — fall through to keywords
+
+    return AGENTS.get(_keyword_best(lower) or "general", AGENTS["general"])
+
+
+def _keyword_best(lower: str) -> str | None:
+    best_id, best_score = None, 0
     for agent_id, words in _ROUTE_KEYWORDS.items():
         if agent_id not in AGENTS:
             continue
         score = sum(1 for w in words if w in lower)
         if score > best_score:
             best_id, best_score = agent_id, score
-    return AGENTS.get(best_id, AGENTS["general"])
+    return best_id

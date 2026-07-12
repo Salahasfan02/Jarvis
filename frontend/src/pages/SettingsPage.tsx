@@ -290,6 +290,11 @@ export function SettingsPage(props: {
             <Toggle checked={s.voice.tts_enabled}
                     onChange={(v) => props.onPatch({ voice: { tts_enabled: v } })} />
           </Row>
+          <Row label="Conversation mode"
+               sub="After Jarvis speaks, automatically reopen the mic so you can reply without saying the wake word again (Core screen).">
+            <Toggle checked={s.voice.conversation_mode ?? false}
+                    onChange={(v) => props.onPatch({ voice: { conversation_mode: v } })} />
+          </Row>
           <Row label="Voice engine"
                sub="Kokoro is a local neural engine with human-sounding voices (recommended). If it isn't ready, Jarvis falls back to the basic system voice.">
             <select value={s.voice.tts_engine ?? "kokoro"}
@@ -376,6 +381,11 @@ export function SettingsPage(props: {
           <Row label="Max recalled memories">
             <input type="number" min={1} max={20} value={s.memory.max_recalled}
                    onChange={(e) => props.onPatch({ memory: { max_recalled: parseInt(e.target.value) || 5 } })} />
+          </Row>
+          <Row label="Auto-capture memories"
+               sub="Quietly learn durable facts you mention (preferences, projects, goals). Saved as 'auto' memories you can edit or delete.">
+            <Toggle checked={s.memory.auto_capture ?? true}
+                    onChange={(v) => props.onPatch({ memory: { auto_capture: v } })} />
           </Row>
         </div>
 

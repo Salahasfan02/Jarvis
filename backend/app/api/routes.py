@@ -409,6 +409,57 @@ def plugin_install(body: dict):
         return {"error": str(e)}
 
 
+# --- quick command (menu-bar mini window) ---------------------------------------
+
+@router.post("/quick")
+async def quick_command(body: dict):
+    """One-shot Q&A for the menu-bar bar. Optionally includes screen OCR so the
+    user can ask about whatever app is in front. Streams the text answer; does
+    not touch conversation history."""
+    question = (body.get("question") or "").strip()
+    include_screen = bool(body.get("include_screen"))
+
+    screen_text = ""
+    if include_screen:
+        try:
+            from ..vision import watcher
+            screen_text = await watcher._capture_text()
+        except Exception:
+            screen_text = ""
+
+    system = (
+        "You are Jarvis, answering a quick question from a floating command bar. "
+        "Be brief and direct — one or two sentences unless more is clearly needed. "
+        "No greetings or sign-offs.")
+    messages = [{"role": "system", "content": system}]
+    if screen_text.strip():
+        messages.append({"role": "system", "content":
+            "The user is looking at this on their screen right now:\n"
+            + screen_text[:4000]})
+    messages.append({"role": "user", "content": question})
+
+    async def stream():
+        try:
+            async for chunk in ollama_client.chat_stream(messages):
+                content = chunk.get("message", {}).get("content", "")
+                if content:
+                    yield json.dumps({"token": content}) + "\n"
+                if chunk.get("done"):
+                    break
+            yield json.dumps({"done": True}) + "\n"
+        except Exception as e:
+            yield json.dumps({"error": str(e)}) + "\n"
+
+    audit.log("quick_command", question=question[:120], screen=include_screen)
+    return StreamingResponse(stream(), media_type="application/x-ndjson")
+
+
+@router.get("/watches")
+def list_watches():
+    from ..vision import watcher
+    return watcher.active()
+
+
 # --- offline speech recognition (whisper) ---------------------------------------
 
 @router.get("/stt/status")

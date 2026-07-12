@@ -8,7 +8,7 @@
  * Dev:  npm start          (loads http://localhost:5173 from `npm run dev`)
  * Prod: build the frontend first (npm run build in ../frontend), then package.
  */
-const { app, BrowserWindow, Tray, Menu, globalShortcut, nativeImage, shell } = require("electron");
+const { app, BrowserWindow, Tray, Menu, globalShortcut, ipcMain, nativeImage, shell } = require("electron");
 const { spawn } = require("child_process");
 const fs = require("fs");
 const http = require("http");
@@ -36,8 +36,15 @@ const BACKEND_DIR = backendDir();
 
 let mainWindow = null;
 let floatWindow = null;
+let quickWindow = null;
 let tray = null;
 let backendProc = null;
+
+function quickUrl() {
+  if (isDev && !fs.existsSync(PROD_INDEX)) return `${DEV_URL}/quick.html`;
+  const local = path.join(path.dirname(PROD_INDEX), "quick.html");
+  return "file://" + local;
+}
 
 const isDev = !app.isPackaged;
 
@@ -107,6 +114,33 @@ function toggleFloatWindow() {
   loadUI(floatWindow);
 }
 
+function toggleQuickWindow() {
+  if (quickWindow && !quickWindow.isDestroyed()) {
+    if (quickWindow.isVisible()) { quickWindow.hide(); return; }
+    quickWindow.show();
+    quickWindow.focus();
+    quickWindow.webContents.executeJavaScript("window.jarvisFocus && window.jarvisFocus()");
+    return;
+  }
+  const { screen } = require("electron");
+  const { width } = screen.getPrimaryDisplay().workAreaSize;
+  quickWindow = new BrowserWindow({
+    width: 600,
+    height: 200,
+    x: Math.round((width - 600) / 2),
+    y: 140,
+    frame: false,
+    transparent: true,
+    alwaysOnTop: true,
+    resizable: false,
+    skipTaskbar: true,
+    vibrancy: "hud",
+    webPreferences: { contextIsolation: true, preload: path.join(__dirname, "quick-preload.cjs") },
+  });
+  quickWindow.loadURL(quickUrl());
+  quickWindow.on("blur", () => quickWindow && quickWindow.hide());
+}
+
 function createTray() {
   const icon = nativeImage.createFromDataURL(
     // 16x16 template circle
@@ -122,6 +156,7 @@ function rebuildTrayMenu() {
   const openAtLogin = app.getLoginItemSettings().openAtLogin;
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: "Open Jarvis", click: () => (mainWindow ? mainWindow.show() : createMainWindow()) },
+    { label: "Quick command  ⌥Space", click: toggleQuickWindow },
     { label: "Floating assistant  ⌘⇧J", click: toggleFloatWindow },
     { type: "separator" },
     {
@@ -138,11 +173,14 @@ function rebuildTrayMenu() {
   ]));
 }
 
+ipcMain.on("quick-hide", () => quickWindow && quickWindow.hide());
+
 app.whenReady().then(() => {
   startBackend();
   createMainWindow();
   createTray();
   globalShortcut.register("CommandOrControl+Shift+J", toggleFloatWindow);
+  globalShortcut.register("Alt+Space", toggleQuickWindow);
 });
 
 app.on("window-all-closed", () => {

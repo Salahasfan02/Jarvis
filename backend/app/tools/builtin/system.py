@@ -334,6 +334,43 @@ async def daily_briefing() -> str:
 
 
 @tool(
+    name="watch_screen",
+    description="Watch the user's screen in the background and notify them when a "
+                "condition becomes true — e.g. 'the download finishes', 'the build "
+                "goes green', 'the render completes'. Returns immediately; a macOS "
+                "notification fires when it triggers.",
+    parameters={
+        "type": "object",
+        "properties": {
+            "condition": {"type": "string", "description": "what to watch for, in plain words"},
+            "interval_seconds": {"type": "integer", "description": "how often to check (default 15)"},
+        },
+        "required": ["condition"],
+    },
+    risk="confirm",
+    agent_tags=["vision"],
+)
+def watch_screen(condition: str, interval_seconds: int = 15) -> str:
+    from ...vision import watcher
+    w = watcher.start(condition, interval_seconds)
+    return (f"Watching your screen (check #{w.id}) every {w.interval}s for: "
+            f"“{condition}”. I'll notify you when it happens. Say 'stop watching' "
+            f"to cancel.")
+
+
+@tool(
+    name="stop_watching",
+    description="Stop screen watches started with watch_screen.",
+    parameters={"type": "object", "properties": {}},
+    agent_tags=["vision"],
+)
+def stop_watching() -> str:
+    from ...vision import watcher
+    n = watcher.stop()
+    return f"Stopped {n} screen watch(es)." if n else "No active screen watches."
+
+
+@tool(
     name="remember",
     description="Save a fact to long-term memory so it persists across conversations. "
                 "Use when the user shares preferences, projects, contacts, goals, or "

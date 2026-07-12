@@ -50,6 +50,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "voice": {
         "enabled": True,
         "wake_word_enabled": False,
+        "conversation_mode": False,     # auto-reopen mic after Jarvis speaks
         "tts_enabled": True,
         "tts_engine": "kokoro",         # kokoro | piper | browser (auto-falls back)
         "tts_rate": 1.0,
@@ -72,6 +73,7 @@ DEFAULT_SETTINGS: dict[str, Any] = {
     "memory": {
         "enabled": True,
         "max_recalled": 5,
+        "auto_capture": True,           # learn facts from conversation quietly
     },
     "tools": {
         "enabled": True,

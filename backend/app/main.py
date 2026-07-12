@@ -11,7 +11,8 @@ from .api.routes import router
 from .plugins import loader as plugin_loader
 
 # Importing the builtin tool modules registers their tools.
-from .tools.builtin import browser, filesystem, macos, music, system, web  # noqa: F401
+from .tools.builtin import (  # noqa: F401
+    browser, filesystem, imessage, macos, music, system, web)
 
 
 @asynccontextmanager

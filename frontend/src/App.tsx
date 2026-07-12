@@ -4,7 +4,7 @@ import { MatrixRain } from "./components/MatrixRain";
 import { WorldMap } from "./components/WorldMap";
 import { Page, Sidebar } from "./components/Sidebar";
 import { API, api, Attachment, Conversation, Message } from "./lib/api";
-import { enqueueSpeech, playWakeChime, speechSupported, stopSpeaking, VoiceEngine, WhisperVoiceEngine } from "./lib/voice";
+import { enqueueSpeech, playWakeChime, speechSupported, stopSpeaking, voiceBus, VoiceEngine, WhisperVoiceEngine } from "./lib/voice";
 import { ChatEvent, ChatSocket } from "./lib/ws";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
@@ -46,6 +46,9 @@ export default function App() {
   const streamBuf = useRef("");
   const spokenRef = useRef(0);   // chars of the stream already sent to TTS
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const busyRef = useRef(false);
+  busyRef.current = busy;
+  const lastInputWasVoice = useRef(false);
 
   // Speak completed sentences WHILE the reply streams, so Jarvis starts
   // talking after the first sentence instead of after the whole answer.
@@ -154,6 +157,11 @@ export default function App() {
     refreshConversations();
   };
 
+  // Conversation voice mode: after Jarvis finishes speaking, reopen the mic so
+  // the user can reply without repeating the wake word. Assigned once `voice`
+  // exists; called via ref from the WS "done" handler.
+  const maybeReopenMicRef = useRef<() => void>(() => {});
+
   const switchMode = (m: "chat" | "code") => {
     setMode(m);
     if (activeIdRef.current) {
@@ -224,6 +232,7 @@ export default function App() {
           if (id) api.messages(id).then(setMessages).catch(() => {});
           streamBuf.current = e.content;      // speak whatever trailed the last "."
           speakStreamedSentences(true);
+          maybeReopenMicRef.current();
           break;
         }
         case "title":
@@ -278,7 +287,7 @@ export default function App() {
     const opts = {
       language: "en-US",
       wakeWords: ["jarvis"],
-      onTranscript: (text: string) => send(text),
+      onTranscript: (text: string) => { lastInputWasVoice.current = true; send(text); },
       onInterim: setInterim,
       onWake: () => {
         stopSpeaking();
@@ -294,6 +303,15 @@ export default function App() {
 
   // stop the previous engine whenever the engine instance is replaced
   useEffect(() => () => voice?.stop(), [voice]);
+
+  maybeReopenMicRef.current = () => {
+    const st = settingsRef.current;
+    if (!st?.voice?.conversation_mode || !voice) return;
+    if (lastInputWasVoice.current !== true) return;  // only continue voice turns
+    voiceBusIdle().then(() => {
+      if (!busyRef.current && pageRef.current === "core") voice.startListening();
+    });
+  };
 
   useEffect(() => {
     if (voice && settings) {
@@ -420,9 +438,26 @@ export default function App() {
   const onComposerKey = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      if (!busy) send(input);
+      if (!busy) { lastInputWasVoice.current = false; send(input); }
     }
   };
+
+  // resolves once Jarvis has finished speaking (or immediately if silent)
+  const voiceBusIdle = () => new Promise<void>((resolve) => {
+    let speaking = false;
+    const onSpeak = (ev: Event) => { speaking = (ev as CustomEvent).detail; };
+    voiceBus.addEventListener("speaking", onSpeak);
+    // give TTS a moment to start; then wait until it stops
+    setTimeout(() => {
+      const check = setInterval(() => {
+        if (!speaking) {
+          clearInterval(check);
+          voiceBus.removeEventListener("speaking", onSpeak);
+          resolve();
+        }
+      }, 250);
+    }, 600);
+  });
 
   const voiceEnabled = settings?.voice?.enabled !== false && voice !== null;
 
@@ -486,7 +521,7 @@ export default function App() {
               onEdit={editMessage}
               onRegenerate={regenerate}
               onCopy={(t) => navigator.clipboard.writeText(t)}
-              onSuggestion={(s) => send(s)}
+              onSuggestion={(s) => { lastInputWasVoice.current = false; send(s); }}
               assistantName={settings?.assistant?.name ?? "Jarvis"}
             />
             {(attachments.length > 0 || uploading) && (
@@ -555,7 +590,7 @@ export default function App() {
                   <button className="icon-btn" title="Stop" onClick={() => socket.stop()}>■</button>
                 ) : (
                   <button className="icon-btn primary" title="Send" disabled={!input.trim()}
-                          onClick={() => send(input)}>↑</button>
+                          onClick={() => { lastInputWasVoice.current = false; send(input); }}>↑</button>
                 )}
               </div>
               <div className="voice-hint">
@@ -570,7 +605,7 @@ export default function App() {
             busy={busy}
             listening={voiceState === "listening"}
             assistantName={settings?.assistant?.name ?? "Jarvis"}
-            onCommand={(text) => send(text)}
+            onCommand={(text) => { lastInputWasVoice.current = false; send(text); }}
             lastUser={[...messages].reverse().find((m) => m.role === "user")?.content ?? null}
             reply={busy ? streaming
                         : [...messages].reverse().find((m) => m.role === "assistant")?.content ?? null}

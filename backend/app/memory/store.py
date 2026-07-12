@@ -43,6 +43,59 @@ _STOPWORDS = {"the", "a", "an", "is", "are", "was", "to", "of", "in", "on", "for
               "and", "or", "what", "my", "me", "i", "you", "it", "do", "does", "can"}
 
 
+_PERSONAL_HINTS = re.compile(
+    r"\b(i|my|me|i'm|im|i've|mine|we|our)\b", re.I)
+
+CAPTURE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "facts": {"type": "array", "items": {"type": "string"}, "maxItems": 3},
+    },
+    "required": ["facts"],
+}
+
+
+def schedule_auto_capture(user_message: str) -> None:
+    """Learn durable facts from what the user says, automatically and in the
+    background. Toggleable via settings.memory.auto_capture."""
+    import asyncio
+    if not settings.get("memory.auto_capture", True):
+        return
+    if not settings.get("memory.enabled", True):
+        return
+    if len(user_message) < 15 or not _PERSONAL_HINTS.search(user_message):
+        return
+    asyncio.get_event_loop().create_task(_auto_capture(user_message))
+
+
+async def _auto_capture(user_message: str) -> None:
+    import json
+
+    from ..security import audit
+    try:
+        raw = await ollama_client.chat_once([
+            {"role": "system", "content":
+                "Extract durable personal facts about the user from their message: "
+                "preferences, projects, goals, relationships, habits, biography. "
+                "Only facts worth remembering for months — NOT one-off requests, "
+                "questions, or commands. Each fact must be one self-contained "
+                "sentence starting with 'The user'. Return an empty list when "
+                "there is nothing durable (most messages)."},
+            {"role": "user", "content": user_message[:800]},
+        ], model=ollama_client.model_for("utility"), format=CAPTURE_SCHEMA)
+        facts = [f.strip() for f in json.loads(raw).get("facts", [])
+                 if isinstance(f, str) and 10 < len(f.strip()) < 220][:3]
+        for fact in facts:
+            # skip near-duplicates of what we already know
+            similar = await recall(fact, limit=1)
+            if similar and _keyword_score(fact, similar[0]["content"]) > 0.75:
+                continue
+            await save(fact, "auto")
+            audit.log("memory_auto_captured", fact=fact)
+    except Exception:
+        pass  # background nicety — never let it surface
+
+
 async def recall(query: str, limit: int | None = None) -> list[dict]:
     if not settings.get("memory.enabled", True):
         return []
