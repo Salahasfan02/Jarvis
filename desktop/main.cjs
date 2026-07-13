@@ -114,30 +114,41 @@ function toggleFloatWindow() {
   loadUI(floatWindow);
 }
 
+function showQuick() {
+  // A 'panel'-type window is an NSNonactivatingPanel on macOS: show() makes it
+  // the key window (so it accepts typing) WITHOUT activating the Jarvis app,
+  // so it floats over whatever app you're in and that app stays frontmost.
+  quickWindow.setAlwaysOnTop(true, "screen-saver");
+  quickWindow.show();
+  quickWindow.webContents.executeJavaScript("window.jarvisFocus && window.jarvisFocus()");
+}
+
 function toggleQuickWindow() {
   if (quickWindow && !quickWindow.isDestroyed()) {
     if (quickWindow.isVisible()) { quickWindow.hide(); return; }
-    quickWindow.show();
-    quickWindow.focus();
-    quickWindow.webContents.executeJavaScript("window.jarvisFocus && window.jarvisFocus()");
+    showQuick();
     return;
   }
   const { screen } = require("electron");
   const { width } = screen.getPrimaryDisplay().workAreaSize;
   quickWindow = new BrowserWindow({
-    width: 600,
+    width: 620,
     height: 200,
-    x: Math.round((width - 600) / 2),
-    y: 140,
+    x: Math.round((width - 620) / 2),
+    y: 160,
     frame: false,
     transparent: true,
     alwaysOnTop: true,
     resizable: false,
     skipTaskbar: true,
+    hasShadow: false,
+    type: "panel",              // non-activating panel — the key to not stealing focus
     vibrancy: "hud",
     webPreferences: { contextIsolation: true, preload: path.join(__dirname, "quick-preload.cjs") },
   });
+  quickWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   quickWindow.loadURL(quickUrl());
+  quickWindow.once("ready-to-show", showQuick);
   quickWindow.on("blur", () => quickWindow && quickWindow.hide());
 }
 
