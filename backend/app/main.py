@@ -19,6 +19,11 @@ from .tools.builtin import (  # noqa: F401
 async def lifespan(app: FastAPI):
     db.init_db()
     plugin_loader.load_all()
+    # resume background screen-memory if the user left it enabled
+    from .config import settings
+    if settings.get("screen_memory.enabled", False):
+        from .vision import journal
+        journal.start()
     yield
 
 

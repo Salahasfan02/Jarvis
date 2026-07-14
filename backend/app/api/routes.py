@@ -419,8 +419,10 @@ async def quick_command(body: dict):
     question = (body.get("question") or "").strip()
     include_screen = bool(body.get("include_screen"))
 
-    screen_text = ""
-    if include_screen:
+    # Prefer screen text captured by Electron (which hides the Jarvis panel
+    # first); fall back to capturing here if the caller didn't provide it.
+    screen_text = (body.get("screen_text") or "").strip()
+    if include_screen and not screen_text:
         try:
             from ..vision import watcher
             screen_text = await watcher._capture_text()
@@ -454,10 +456,39 @@ async def quick_command(body: dict):
     return StreamingResponse(stream(), media_type="application/x-ndjson")
 
 
+@router.post("/screen-ocr")
+async def screen_ocr():
+    """Capture the screen and return its OCR text (used by the quick window,
+    which hides its own panel first for a clean shot)."""
+    from ..vision import watcher
+    try:
+        return {"text": await watcher._capture_text()}
+    except Exception as e:
+        return {"text": "", "error": str(e)}
+
+
 @router.get("/watches")
 def list_watches():
     from ..vision import watcher
     return watcher.active()
+
+
+@router.get("/screen-memory")
+def screen_memory_status():
+    from ..vision import journal
+    return journal.status()
+
+
+@router.post("/screen-memory")
+async def screen_memory_control(body: dict):
+    from ..vision import journal
+    if body.get("enabled"):
+        interval = int(body.get("interval_seconds") or
+                       settings.get("screen_memory.interval_seconds", 300))
+        settings.update({"screen_memory": {"enabled": True, "interval_seconds": interval}})
+        return journal.start(interval)
+    settings.update({"screen_memory": {"enabled": False}})
+    return journal.stop()
 
 
 # --- offline speech recognition (whisper) ---------------------------------------

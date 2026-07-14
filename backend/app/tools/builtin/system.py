@@ -371,6 +371,68 @@ def stop_watching() -> str:
 
 
 @tool(
+    name="remember_screen",
+    description="Look at the screen RIGHT NOW, summarize what the user is doing, and "
+                "save it to long-term memory. Use for 'remember what's on my screen' or "
+                "'note what I'm working on'.",
+    parameters={"type": "object", "properties": {}},
+    risk="confirm",
+    agent_tags=["vision"],
+)
+async def remember_screen() -> str:
+    from ...vision import watcher
+    from ...memory import store
+    text = await watcher._capture_text()
+    if len(text.strip()) < 20:
+        return "The screen looks empty or I couldn't read it (check Screen Recording permission)."
+    summary = await __import__("app.llm.ollama_client", fromlist=["chat_once"]).chat_once([
+        {"role": "system", "content":
+            "Summarize what the user is doing from their screen text in one concise "
+            "sentence starting with 'The user'."},
+        {"role": "user", "content": text[:3500]},
+    ])
+    summary = (summary or "").strip().strip('"')
+    if not summary:
+        return "Couldn't summarize the screen."
+    import time as _t
+    await store.save(f"[{_t.strftime('%Y-%m-%d %H:%M')}] {summary}", "activity")
+    return f"Saved to memory: {summary}"
+
+
+@tool(
+    name="start_screen_memory",
+    description="Start WATCHING the screen in the background: every few minutes Jarvis "
+                "captures the screen, summarizes what the user is doing, and saves it to "
+                "memory (category 'activity'). Use for 'watch my screen and remember what "
+                "I do' / 'keep a log of my activity'. Runs until stopped.",
+    parameters={
+        "type": "object",
+        "properties": {"interval_minutes": {"type": "integer",
+                       "description": "how often to capture (default 5)"}},
+    },
+    risk="confirm",
+    agent_tags=["vision"],
+)
+def start_screen_memory(interval_minutes: int = 5) -> str:
+    from ...vision import journal
+    st = journal.start(int(max(1, interval_minutes)) * 60)
+    return (f"Now watching your screen every {st['interval'] // 60} min and saving what "
+            f"you're doing to memory. Say 'stop watching my screen' to stop.")
+
+
+@tool(
+    name="stop_screen_memory",
+    description="Stop the background screen-memory watcher started with start_screen_memory.",
+    parameters={"type": "object", "properties": {}},
+    agent_tags=["vision"],
+)
+def stop_screen_memory() -> str:
+    from ...vision import journal
+    st = journal.stop()
+    return f"Stopped watching your screen. Saved {st['saved']} activity notes this session."
+
+
+@tool(
     name="remember",
     description="Save a fact to long-term memory so it persists across conversations. "
                 "Use when the user shares preferences, projects, contacts, goals, or "

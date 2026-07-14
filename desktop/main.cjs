@@ -186,6 +186,22 @@ function rebuildTrayMenu() {
 
 ipcMain.on("quick-hide", () => quickWindow && quickWindow.hide());
 
+// Capture the screen for the 👁 feature with the Jarvis panel hidden, so the
+// OCR reads the app the user is actually looking at (not our own bar).
+ipcMain.handle("quick-capture-screen", async () => {
+  const wasVisible = quickWindow && quickWindow.isVisible();
+  if (wasVisible) quickWindow.hide();
+  await new Promise((r) => setTimeout(r, 180));  // let the compositor update
+  let text = "";
+  try {
+    const res = await fetch("http://127.0.0.1:8765/api/screen-ocr", { method: "POST" });
+    const data = await res.json();
+    text = data.text || "";
+  } catch { /* backend unreachable */ }
+  if (wasVisible) { quickWindow.show(); }
+  return text;
+});
+
 app.whenReady().then(() => {
   startBackend();
   createMainWindow();

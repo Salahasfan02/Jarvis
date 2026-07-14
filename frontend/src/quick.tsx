@@ -28,10 +28,16 @@ function Quick() {
     setBusy(true);
     setAnswer("");
     try {
+      // For the 👁 feature, capture the screen via Electron (which hides this
+      // panel first) so the OCR reads the app behind us, not our own bar.
+      let screenText = "";
+      if (seeScreen && (window as any).jarvisCaptureScreen) {
+        try { screenText = await (window as any).jarvisCaptureScreen(); } catch { /* ignore */ }
+      }
       const res = await fetch(`${API}/quick`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ question: q, include_screen: seeScreen }),
+        body: JSON.stringify({ question: q, include_screen: seeScreen, screen_text: screenText }),
       });
       const reader = res.body!.getReader();
       const dec = new TextDecoder();

@@ -70,6 +70,23 @@ export function SettingsPage(props: {
     }
   };
 
+  const [screenMem, setScreenMem] = useState<any>(null);
+  const refreshScreenMem = () =>
+    fetch(`${API}/screen-memory`).then((r) => r.json()).then(setScreenMem).catch(() => {});
+  useEffect(() => {
+    refreshScreenMem();
+    const t = setInterval(refreshScreenMem, 8000);
+    return () => clearInterval(t);
+  }, []);
+  const toggleScreenMemory = (on: boolean) => {
+    fetch(`${API}/screen-memory`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ enabled: on,
+        interval_seconds: s?.screen_memory?.interval_seconds ?? 300 }),
+    }).then((r) => r.json()).then(setScreenMem).catch(() => {});
+  };
+
   const [sttStatus, setSttStatus] = useState<any>(null);
   const [sttDownload, setSttDownload] = useState<string>("");
   const refreshStt = () =>
@@ -386,6 +403,22 @@ export function SettingsPage(props: {
                sub="Quietly learn durable facts you mention (preferences, projects, goals). Saved as 'auto' memories you can edit or delete.">
             <Toggle checked={s.memory.auto_capture ?? true}
                     onChange={(v) => props.onPatch({ memory: { auto_capture: v } })} />
+          </Row>
+          <Row label="Watch my screen"
+               sub={screenMem?.running
+                    ? `Watching — ${screenMem.saved} activity notes saved this session. Everything stays local; only one-line summaries are kept.`
+                    : "Periodically capture the screen, summarize what you're doing, and save it to memory. Off by default — this watches your screen continuously."}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <select value={String(s.screen_memory?.interval_seconds ?? 300)}
+                      onChange={(e) => props.onPatch({ screen_memory: { interval_seconds: parseInt(e.target.value) } })}>
+                <option value="120">every 2 min</option>
+                <option value="300">every 5 min</option>
+                <option value="600">every 10 min</option>
+                <option value="1800">every 30 min</option>
+              </select>
+              <Toggle checked={screenMem?.running ?? false}
+                      onChange={(v) => toggleScreenMemory(v)} />
+            </div>
           </Row>
         </div>
 
