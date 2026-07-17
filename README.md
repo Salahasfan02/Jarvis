@@ -5,6 +5,9 @@ local LLMs through Ollama, voice conversations with wake words, macOS
 automation, web research, long-term memory, specialized agents, and a plugin
 system — behind a modern desktop UI with a strict permission model.
 
+
+<img width="1800" height="1169" alt="Screenshot 2026-07-17 at 01 26 43" src="https://github.com/user-attachments/assets/632d61e8-9cb6-4b42-b79d-396e787a4962" />
+
 ---
 
 ## Requirements
@@ -24,6 +27,7 @@ You also need at least one model downloaded:
 ```bash
 ollama pull llama3.1
 ```
+   ![Uploading Screenshot 2026-07-17 at 01.26.43.png…]()
 
 ---
 
