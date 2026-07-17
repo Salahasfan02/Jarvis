@@ -1,12 +1,15 @@
 import { useState } from "react";
 import { Conversation } from "../lib/api";
 
-export type Page = "core" | "chat" | "code" | "projects" | "settings" | "memory" | "dev" | "registry";
+export type Page = "core" | "chat" | "code" | "projects" | "camera"
+  | "skills" | "settings" | "memory" | "dev" | "registry";
 
 const NAV: { id: Page; icon: string; label: string }[] = [
   { id: "core", icon: "◉", label: "Core" },
   { id: "chat", icon: "💬", label: "Workspace" },
   { id: "projects", icon: "📁", label: "Projects" },
+  { id: "skills", icon: "✨", label: "Skills" },
+  { id: "camera", icon: "📷", label: "Camera" },
   { id: "memory", icon: "🧠", label: "Memory" },
   { id: "registry", icon: "📋", label: "Capabilities" },
   { id: "dev", icon: "🛠", label: "Developer" },

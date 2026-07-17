@@ -114,18 +114,27 @@ function toggleFloatWindow() {
   loadUI(floatWindow);
 }
 
+function hideQuick() {
+  if (quickWindow && !quickWindow.isDestroyed() && quickWindow.isVisible()) {
+    quickWindow.hide();
+  }
+}
+
 function showQuick() {
   // A 'panel'-type window is an NSNonactivatingPanel on macOS: show() makes it
   // the key window (so it accepts typing) WITHOUT activating the Jarvis app,
   // so it floats over whatever app you're in and that app stays frontmost.
-  quickWindow.setAlwaysOnTop(true, "screen-saver");
+  // NB: level "floating" (not "screen-saver") — screen-saver level sits above
+  // the menu bar and can trap interaction, freezing the main window.
+  quickWindow.setAlwaysOnTop(true, "floating");
   quickWindow.show();
-  quickWindow.webContents.executeJavaScript("window.jarvisFocus && window.jarvisFocus()");
+  quickWindow.webContents.executeJavaScript("window.jarvisFocus && window.jarvisFocus()")
+    .catch(() => {});
 }
 
 function toggleQuickWindow() {
   if (quickWindow && !quickWindow.isDestroyed()) {
-    if (quickWindow.isVisible()) { quickWindow.hide(); return; }
+    if (quickWindow.isVisible()) { hideQuick(); return; }
     showQuick();
     return;
   }
@@ -146,10 +155,13 @@ function toggleQuickWindow() {
     vibrancy: "hud",
     webPreferences: { contextIsolation: true, preload: path.join(__dirname, "quick-preload.cjs") },
   });
-  quickWindow.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+  // visible across spaces, but NOT forced above fullscreen (that combination
+  // with a panel is what wedged the window manager).
+  quickWindow.setVisibleOnAllWorkspaces(true);
   quickWindow.loadURL(quickUrl());
   quickWindow.once("ready-to-show", showQuick);
-  quickWindow.on("blur", () => quickWindow && quickWindow.hide());
+  quickWindow.on("blur", hideQuick);
+  quickWindow.on("closed", () => { quickWindow = null; });
 }
 
 function createTray() {
@@ -184,7 +196,7 @@ function rebuildTrayMenu() {
   ]));
 }
 
-ipcMain.on("quick-hide", () => quickWindow && quickWindow.hide());
+ipcMain.on("quick-hide", () => hideQuick());
 
 // Capture the screen for the 👁 feature with the Jarvis panel hidden, so the
 // OCR reads the app the user is actually looking at (not our own bar).

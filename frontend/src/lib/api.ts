@@ -141,6 +141,39 @@ export async function serverTts(text: string): Promise<Blob | null> {
   return null;
 }
 
+export interface Skill {
+  id: string;
+  name: string;
+  description: string;
+  template: string;
+}
+
+export const skillsApi = {
+  list: () => request<Skill[]>("/skills"),
+  create: (body: { name: string; template: string; description?: string }) =>
+    request<Skill>("/skills", { method: "POST", body: JSON.stringify(body) }),
+  update: (id: string, body: Partial<Skill>) =>
+    request(`/skills/${id}`, { method: "PATCH", body: JSON.stringify(body) }),
+  remove: (id: string) => request(`/skills/${id}`, { method: "DELETE" }),
+  import: (skills: any) =>
+    request<{ added: string[]; skipped: string[] }>("/skills/import", {
+      method: "POST", body: JSON.stringify({ skills }),
+    }),
+};
+
+/** Expand a "/skillname rest of text" message using saved skills. Returns the
+ *  expanded prompt, or the original text if it isn't a known skill command. */
+export function expandSkill(text: string, skills: Skill[]): string {
+  const m = text.match(/^\/([a-z0-9-]+)\s*([\s\S]*)$/i);
+  if (!m) return text;
+  const skill = skills.find((s) => s.name === m[1].toLowerCase());
+  if (!skill) return text;
+  const input = m[2].trim();
+  return skill.template.includes("{input}")
+    ? skill.template.replace(/\{input\}/g, input)
+    : `${skill.template}\n\n${input}`.trim();
+}
+
 export async function pullModel(
   name: string,
   onProgress: (e: any) => void

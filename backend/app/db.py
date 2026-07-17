@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
 import time
 import uuid
@@ -43,6 +44,13 @@ CREATE TABLE IF NOT EXISTS capability_gaps (
     count INTEGER NOT NULL DEFAULT 1,
     created_at REAL NOT NULL,
     updated_at REAL NOT NULL
+);
+CREATE TABLE IF NOT EXISTS skills (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    template TEXT NOT NULL,
+    created_at REAL NOT NULL
 );
 CREATE TABLE IF NOT EXISTS projects (
     id TEXT PRIMARY KEY,
@@ -135,6 +143,43 @@ def get_conversation(conv_id: str) -> dict | None:
     with connect() as conn:
         row = conn.execute("SELECT * FROM conversations WHERE id=?", (conv_id,)).fetchone()
     return dict(row) if row else None
+
+
+# --- custom skills (saved prompt templates) ------------------------------------
+
+def create_skill(name: str, template: str, description: str = "") -> dict:
+    now = time.time()
+    slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-") or "skill"
+    skill = {"id": uuid.uuid4().hex, "name": slug, "description": description,
+             "template": template, "created_at": now}
+    with connect() as conn:
+        conn.execute(
+            "INSERT INTO skills (id, name, description, template, created_at) VALUES (?,?,?,?,?)",
+            (skill["id"], slug, description, template, now))
+    return skill
+
+
+def list_skills() -> list[dict]:
+    with connect() as conn:
+        rows = conn.execute("SELECT * FROM skills ORDER BY name").fetchall()
+    return [dict(r) for r in rows]
+
+
+def update_skill(skill_id: str, fields: dict) -> None:
+    allowed = {k: v for k, v in fields.items() if k in ("name", "description", "template")}
+    if "name" in allowed:
+        allowed["name"] = re.sub(r"[^a-z0-9]+", "-", allowed["name"].lower()).strip("-")
+    if not allowed:
+        return
+    with connect() as conn:
+        conn.execute(
+            f"UPDATE skills SET {', '.join(f'{k}=?' for k in allowed)} WHERE id=?",
+            (*allowed.values(), skill_id))
+
+
+def delete_skill(skill_id: str) -> None:
+    with connect() as conn:
+        conn.execute("DELETE FROM skills WHERE id=?", (skill_id,))
 
 
 # --- projects ------------------------------------------------------------------

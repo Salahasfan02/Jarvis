@@ -409,6 +409,94 @@ def plugin_install(body: dict):
         return {"error": str(e)}
 
 
+# --- custom skills (saved prompt templates) -------------------------------------
+
+@router.get("/skills")
+def skills_list():
+    return db.list_skills()
+
+
+@router.post("/skills")
+def skills_create(body: dict):
+    name = (body.get("name") or "").strip()
+    template = (body.get("template") or "").strip()
+    if not name or not template:
+        return {"error": "a skill needs a name and a template"}
+    return db.create_skill(name, template, body.get("description", ""))
+
+
+@router.patch("/skills/{skill_id}")
+def skills_update(skill_id: str, body: dict):
+    db.update_skill(skill_id, body)
+    return {"ok": True}
+
+
+@router.delete("/skills/{skill_id}")
+def skills_delete(skill_id: str):
+    db.delete_skill(skill_id)
+    return {"ok": True}
+
+
+@router.post("/skills/import")
+def skills_import(body: dict):
+    """Import a skill pack. Accepts {"skills": [...]} or a bare list. Each item
+    needs name + template; duplicates (by name) are skipped."""
+    import re
+    items = body.get("skills") if isinstance(body, dict) else body
+    if not isinstance(items, list):
+        return {"error": "expected a JSON array of skills or {\"skills\": [...]}"}
+    existing = {s["name"] for s in db.list_skills()}
+    added, skipped = [], []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or "").strip()
+        template = str(item.get("template") or "").strip()
+        if not name or not template:
+            continue
+        slug = re.sub(r"[^a-z0-9]+", "-", name.lower()).strip("-")
+        if slug in existing:
+            skipped.append(slug)
+            continue
+        db.create_skill(name, template, str(item.get("description") or ""))
+        existing.add(slug)
+        added.append(slug)
+    audit.log("skills_imported", added=len(added), skipped=len(skipped))
+    return {"added": added, "skipped": skipped}
+
+
+# --- live camera vision ----------------------------------------------------------
+
+@router.post("/vision/ask")
+async def vision_ask(body: dict):
+    """Answer a question about a camera/image frame (base64). Streams the reply."""
+    image_b64 = (body.get("image") or "").split(",")[-1]  # strip data: prefix
+    question = (body.get("question") or "What do you see?").strip()
+    vision_model = settings.get("ollama.vision_model", "")
+    if not vision_model:
+        async def no_model():
+            yield json.dumps({"error": "No vision model set. In Settings > AI model, "
+                              "set a multimodal model like llava (pull it first)."}) + "\n"
+        return StreamingResponse(no_model(), media_type="application/x-ndjson")
+
+    messages = [{"role": "user", "content": question, "images": [image_b64]}]
+
+    async def stream():
+        try:
+            async for chunk in ollama_client.chat_stream(messages, model=vision_model):
+                content = chunk.get("message", {}).get("content", "")
+                if content:
+                    yield json.dumps({"token": content}) + "\n"
+                if chunk.get("done"):
+                    break
+            yield json.dumps({"done": True}) + "\n"
+        except Exception as e:
+            yield json.dumps({"error": str(e)}) + "\n"
+
+    audit.log("vision_ask", question=question[:120])
+    return StreamingResponse(stream(), media_type="application/x-ndjson")
+
+
 # --- quick command (menu-bar mini window) ---------------------------------------
 
 @router.post("/quick")

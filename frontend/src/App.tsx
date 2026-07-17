@@ -3,11 +3,13 @@ import { ChatView, ConfirmModal, ConfirmRequest, ToolChipInfo } from "./componen
 import { MatrixRain } from "./components/MatrixRain";
 import { WorldMap } from "./components/WorldMap";
 import { Page, Sidebar } from "./components/Sidebar";
-import { API, api, Attachment, Conversation, Message } from "./lib/api";
+import { API, api, Attachment, Conversation, expandSkill, Message, Skill, skillsApi } from "./lib/api";
 import { enqueueSpeech, playWakeChime, speechSupported, stopSpeaking, voiceBus, VoiceEngine, WhisperVoiceEngine } from "./lib/voice";
 import { ChatEvent, ChatSocket } from "./lib/ws";
+import { CameraPage } from "./pages/CameraPage";
 import { DashboardPage } from "./pages/DashboardPage";
 import { ProjectsPage } from "./pages/ProjectsPage";
+import { SkillsPage } from "./pages/SkillsPage";
 import { DevPage } from "./pages/DevPage";
 import { MemoryPage } from "./pages/MemoryPage";
 import { RegistryPage } from "./pages/RegistryPage";
@@ -49,6 +51,13 @@ export default function App() {
   const busyRef = useRef(false);
   busyRef.current = busy;
   const lastInputWasVoice = useRef(false);
+  const skillsRef = useRef<Skill[]>([]);
+  useEffect(() => {
+    const load = () => skillsApi.list().then((s) => (skillsRef.current = s)).catch(() => {});
+    load();
+    const t = setInterval(load, 15000);
+    return () => clearInterval(t);
+  }, []);
 
   // Speak completed sentences WHILE the reply streams, so Jarvis starts
   // talking after the first sentence instead of after the whole answer.
@@ -84,7 +93,8 @@ export default function App() {
   );
 
   const send = useCallback((text: string, convId?: string | null) => {
-    const content = text.trim();
+    // Expand /skill shortcuts into their saved prompt template before sending.
+    const content = expandSkill(text.trim(), skillsRef.current);
     if (!content) return;
     stopSpeaking();
     const target = convId !== undefined ? convId : activeIdRef.current;
@@ -628,6 +638,8 @@ export default function App() {
           />
         )}
         {page === "projects" && <ProjectsPage onOpenConversation={openConversation} />}
+        {page === "skills" && <SkillsPage />}
+        {page === "camera" && <CameraPage speakReplies={settings?.voice?.tts_enabled ?? false} />}
         {page === "settings" && <SettingsPage settings={settings} onPatch={patchSettings} />}
         {page === "memory" && <MemoryPage />}
         {page === "dev" && <DevPage />}
