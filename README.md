@@ -13,7 +13,7 @@ Jarvis turns your MacBook into the AI assistant from the movies: talk to it, let
 [![TypeScript](https://img.shields.io/badge/TypeScript-React-3178C6?logo=typescript&logoColor=white)](#tech-stack)
 [![Ollama](https://img.shields.io/badge/LLM-Ollama-black)](https://ollama.com)
 [![Local & Private](https://img.shields.io/badge/100%25-Local_%26_Private-00ff66)](#-why-jarvis)
-[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![License: Noncommercial](https://img.shields.io/badge/License-Noncommercial-green.svg)](LICENSE)
 
 **⭐ If this looks cool, star the repo — it genuinely helps.**
 
@@ -34,7 +34,7 @@ Every AI assistant wants your data in the cloud. Jarvis doesn't.
 - **👁️ It can actually see** — reads your screen with Apple's OCR, watches through your camera, and answers questions about whatever's in front of you.
 - **🦾 It does things** — opens apps, controls your browser, plays music, drafts emails, manages files, runs code — with a permission prompt before anything touches your system.
 - **🧩 It's an OS, not a chatbot** — a living command-center dashboard with agents, projects, long-term memory, and a plugin system it can extend *itself*.
-- **🆓 Free & open source** — MIT licensed. Fork it, hack it, make it yours.
+- **🆓 Free & source-available** — free for any **noncommercial** use. Fork it, hack it, make it yours.
 
 ---
 
@@ -233,7 +233,7 @@ If Jarvis is useful or just fun to poke at, **drop a star** — it helps other p
 
 ## 📄 License
 
-[MIT](LICENSE) — do whatever you want with it.
+[PolyForm Noncommercial 1.0.0](LICENSE) — **free for any noncommercial use**: personal projects, hobby, research, education, and nonprofits. You can use, modify, and share it freely — just not sell it or use it commercially. Commercial use requires a separate license from the author.
 
 <div align="center">
 <br/>
