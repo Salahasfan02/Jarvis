@@ -21,7 +21,7 @@ Jarvis turns your MacBook into the AI assistant from the movies: talk to it, let
 
 <br/>
 
-![Jarvis Core](docs/screenshots/core.png)
+![Jarvis demo](docs/demo.gif)
 
 </div>
 
