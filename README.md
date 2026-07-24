@@ -1,227 +1,241 @@
-# Jarvis — a local AI assistant for macOS
+<div align="center">
 
-A JARVIS-inspired personal AI assistant that runs entirely on your Mac:
-local LLMs through Ollama, voice conversations with wake words, macOS
-automation, web research, long-term memory, specialized agents, and a plugin
-system — behind a modern desktop UI with a strict permission model.
+# 🟢 Jarvis
 
+### A private, local AI operating system for your Mac.
 
-<img width="1800" height="1169" alt="Screenshot 2026-07-17 at 01 26 43" src="https://github.com/user-attachments/assets/632d61e8-9cb6-4b42-b79d-396e787a4962" />
+**Voice. Vision. Automation. Memory. 100% on your machine — no cloud, no API keys, no subscriptions.**
 
----
+Jarvis turns your MacBook into the AI assistant from the movies: talk to it, let it see your screen and camera, control your apps, remember everything about you, and get real work done — all powered by local LLMs through [Ollama](https://ollama.com). Nothing ever leaves your Mac.
 
-## Requirements
+[![macOS](https://img.shields.io/badge/macOS-Apple_Silicon-000000?logo=apple&logoColor=white)](#requirements)
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](#requirements)
+[![TypeScript](https://img.shields.io/badge/TypeScript-React-3178C6?logo=typescript&logoColor=white)](#tech-stack)
+[![Ollama](https://img.shields.io/badge/LLM-Ollama-black)](https://ollama.com)
+[![Local & Private](https://img.shields.io/badge/100%25-Local_%26_Private-00ff66)](#-why-jarvis)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
-Before anything else, make sure you have these installed:
+**⭐ If this looks cool, star the repo — it genuinely helps.**
 
-| What | Check with | Install from |
-|---|---|---|
-| **macOS** | — | (built for macOS) |
-| **Python 3.11+** | `python3 --version` | https://www.python.org/downloads/ |
-| **Node.js 18+** | `node --version` | https://nodejs.org |
-| **Ollama** | `ollama --version` | https://ollama.com/download |
-| **Chrome** (or the desktop app) | — | only needed for the voice features |
+<br/>
 
-You also need at least one model downloaded:
+![Jarvis Core](docs/screenshots/core.png)
 
-```bash
-ollama pull llama3.1
-```
-   ![Uploading Screenshot 2026-07-17 at 01.26.43.png…]()
+</div>
 
 ---
 
-## ▶️ How to run it — step by step
+## 🧠 Why Jarvis?
 
-### Option A: the easy way (one command)
+Every AI assistant wants your data in the cloud. Jarvis doesn't.
 
-1. Open **Terminal**.
-2. Go to the project folder:
-   ```bash
-   cd path/to/jarvis
-   ```
-3. Make the start script executable (first time only):
-   ```bash
-   chmod +x start.sh
-   ```
-4. Run it:
-   ```bash
-   ./start.sh
-   ```
+- **🔒 Totally private** — runs on local models via Ollama. No accounts, no API keys, no telemetry. Your conversations, screen, camera, files, and memories never leave your machine.
+- **🎙️ Voice-first** — say *"Jarvis…"* and it wakes up (with a chime), listens with **offline Whisper**, and replies in a **human neural voice**. Have a real back-and-forth conversation, hands-free.
+- **👁️ It can actually see** — reads your screen with Apple's OCR, watches through your camera, and answers questions about whatever's in front of you.
+- **🦾 It does things** — opens apps, controls your browser, plays music, drafts emails, manages files, runs code — with a permission prompt before anything touches your system.
+- **🧩 It's an OS, not a chatbot** — a living command-center dashboard with agents, projects, long-term memory, and a plugin system it can extend *itself*.
+- **🆓 Free & open source** — MIT licensed. Fork it, hack it, make it yours.
 
-That's it. On the first run it installs everything automatically (takes a
-minute or two), then your browser opens at **http://localhost:5173**.
+---
 
-**To turn it off:** press **Ctrl+C** in that terminal, or from anywhere run:
+## 📸 Screenshots
+
+<div align="center">
+
+**The Core** — a reactive command center, not a chat box
+![Core](docs/screenshots/core.png)
+
+**Unified Workspace** — chat and code in one place, with runnable code blocks and live tool calls
+![Workspace](docs/screenshots/workspace.png)
+
+</div>
+
+| Custom Skills | Long-term Memory |
+|:---:|:---:|
+| ![Skills](docs/screenshots/skills.png) | ![Memory](docs/screenshots/memory.png) |
+
+| Model & Voice Settings | Self-Improvement Registry |
+|:---:|:---:|
+| ![Settings](docs/screenshots/settings.png) | ![Capabilities](docs/screenshots/capabilities.png) |
+
+---
+
+## ✨ What it can do
+
+<table>
+<tr>
+<td width="50%" valign="top">
+
+### 🎙️ Voice
+- Wake word (*"Jarvis…"*) with an audible chime
+- **Offline speech recognition** (Whisper) — works in any browser
+- **Human-sounding neural voices** (Kokoro TTS)
+- Sentence-streaming replies (talks as it thinks)
+- Conversation mode — reply without repeating the wake word
+
+### 👁️ Vision
+- Read the **exact text** on your screen (Apple Vision OCR)
+- **Live camera** — ask about what it sees
+- **Screen watch** — "tell me when the download finishes"
+- **Screen memory** — auto-journals what you're working on
+
+### 🦾 Mac Automation
+- Open/close apps, control windows, notifications, clipboard
+- **Browser agent** — reuses your tabs, never spams windows
+- Play **YouTube** & **Apple Music**, manage playlists
+- **Notes, Reminders, Calendar** — read and create
+- Draft **iMessage & Email** (you press send)
+
+</td>
+<td width="50%" valign="top">
+
+### 🧑‍💻 Developer Workspace
+- Unified **Chat + Code** modes
+- **Run code in a sandbox** — Python, JS/TS, C/C++, Go, Rust, Java
+- Multi-file projects, package installs, **live HTML preview**
+- Senior-engineer coding agent (review, refactor, tests, docs)
+
+### 🧠 Memory & Knowledge
+- **Long-term memory** — remembers your preferences & projects
+- **Auto-capture** — learns facts as you talk (toggleable)
+- **Document RAG** — drop in PDFs/Word/Excel and ask about them
+- **Projects** — per-project memory across conversations
+
+### 🕵️ Research
+- Live web search + page reading with **mandatory citations**
+- Scoped search: GitHub, Stack Overflow, Reddit, arXiv, YouTube
+
+### 🤖 Intelligence
+- **Auto-routing agents** (research, coding, media, vision…)
+- **Multi-step task planner** with a live checklist
+- **Custom Skills** — save prompts, invoke with `/name`, import/export
+- **Self-improving** — logs what it can't do and can write its own tools
+- **Multi-model** — assign models per task, benchmark them
+
+</td>
+</tr>
+</table>
+
+### 🖥️ Menu-bar Quick Command
+Hit **⌥Space** from *any* app to summon a floating command bar — ask about what's on your screen, get an answer, and get back to work without switching windows.
+
+### ☀️ Daily Briefing
+*"Jarvis, give me my daily briefing"* → live weather, today's calendar, and your reminders, narrated.
+
+---
+
+## 🚀 Quick Start
 
 ```bash
-./stop.sh          # stops the UI and backend
-./stop.sh --all    # also stops Ollama
+# 1. Install Ollama and pull a model (https://ollama.com/download)
+ollama pull qwen2.5:14b
+
+# 2. Clone
+git clone https://github.com/Salahasfan02/Jarvis.git
+cd Jarvis
+
+# 3. Run everything with one command
+chmod +x start.sh && ./start.sh
 ```
 
-Nothing starts automatically when your Mac boots — if localhost shows
-"can't connect", Jarvis is off; run `./start.sh` to turn it on.
+That's it — your browser opens at **http://localhost:5173** and Jarvis is live. Press **Ctrl+C** (or `./stop.sh`) to turn it off. Nothing auto-starts; it only runs when you start it.
 
-### Option B: run it from Visual Studio Code
+<details>
+<summary><b>Prefer the native desktop app?</b></summary>
 
-1. **Open the project**
-   - Open VS Code → **File ▸ Open Folder…** → choose the `jarvis` folder.
-   - If VS Code suggests recommended extensions (Python, Pylance), click
-     **Install** — you want them.
+```bash
+cd desktop
+npm install
+npm start          # or: npm run package  → builds Jarvis.app
+```
+The desktop app adds a menu-bar icon, the **⌥Space** quick command, a **⌘⇧J** floating window, and "Open at Login."
+</details>
 
-2. **Install the dependencies** (first time only)
-   - Press **⇧⌘P** to open the Command Palette.
-   - Type **"Tasks: Run Task"** and press Enter.
-   - Choose **"Install: everything"**.
-   - Wait for both installs to finish in the terminal panel.
-
-3. **Make sure Ollama is running**
-   - Open the built-in terminal (**⌃`**) and run:
-     ```bash
-     ollama serve
-     ```
-   - If it says the address is already in use, Ollama is already running —
-     that's fine, continue.
-
-4. **Start Jarvis**
-   - Open the **Run and Debug** panel (**⇧⌘D**, the ▷ icon with a bug).
-   - In the dropdown at the top, select **"Jarvis: Run All (backend + frontend)"**.
-   - Press **F5** (or click the green ▷).
-   - Two things start: the Python backend (port 8765) and the web UI
-     (port 5173).
-
-5. **Open the app**
-   - Go to **http://localhost:5173** in your browser (Chrome recommended
-     for voice).
-   - The dot at the bottom-left of the sidebar should be **green** with your
-     model name. You're ready — say hi.
-
-6. **Stop it** with the red ■ stop button in VS Code (stops both).
-
-### Option C: run each part manually
+<details>
+<summary><b>Run each piece manually</b></summary>
 
 ```bash
 # Terminal 1 — Ollama
 ollama serve
 
 # Terminal 2 — backend
-cd jarvis/backend
-python3 -m venv .venv                      # first time only
-.venv/bin/pip install -r requirements.txt  # first time only
-.venv/bin/python run.py                    # → http://127.0.0.1:8765
+cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python run.py            # → http://127.0.0.1:8765
 
-# Terminal 3 — frontend
-cd jarvis/frontend
-npm install                                # first time only
-npm run dev                                # → http://localhost:5173
+# Terminal 3 — UI
+cd frontend && npm install && npm run dev   # → http://localhost:5173
 ```
+</details>
 
----
-
-## First-run checklist (recommended)
-
-Open **⚙️ Settings** in the app and:
-
-1. **AI model** — pick your model. Any Ollama model works; you can pull new
-   ones right from this page with a progress bar.
-2. **Embedding model** — set to `nomic-embed-text` (pull it first) to make
-   memory recall semantic instead of keyword-based.
-3. **Vision model** — set to `llava` (pull it first) to enable
-   "what's on my screen?" and camera questions.
-4. **Voice** — enable, pick a voice, set your wake words (default:
-   "jarvis", "computer", "assistant").
-
+### Level up (optional, all local)
 ```bash
-ollama pull nomic-embed-text
-ollama pull llava
-brew install imagesnap        # optional, for webcam capture
+ollama pull nomic-embed-text   # semantic memory + smarter agent routing
+ollama pull llava              # camera & screen vision
 ```
+Then open **Settings** to enable them, download the offline **Whisper** and human **Kokoro** voice models, pick your theme, and set your wake word.
 
 ---
 
-## Using Jarvis
+## 📋 Requirements
 
-- **◉ Core** — the JARVIS command center and main screen: an animated AI core
-  that reacts while Jarvis thinks, listens, or speaks, live system meters
-  (CPU, memory, loaded model), a tool-activity feed, and a context panel
-  showing your current app, browser tabs and music. Type commands right into
-  the bar under the core.
-- **Type** in the chat box, or press **🎤** and speak, or press **👂** and it
-  waits until you say *"Jarvis…"* followed by your request.
-- Ask it to *search the web*, *open apps*, *play music or YouTube*, *organize
-  files*, *create notes and reminders*, *check your calendar*, *draft
-  emails/messages*, *look at your screen*, *remember things about you*,
-  *run code* — it picks the right agent and tools automatically.
-- **Context-aware automation**: it sees your open tabs and running apps, and
-  continues in them — "play Drake" reuses the open YouTube tab; it never opens
-  a duplicate window unless you say "new window".
-- When a tool touches your system, an **Allow / Deny** dialog appears first.
-  Dangerous ones (shell, AppleScript, browser JS, Trash) always ask. Messages
-  and emails are only ever **drafted** — you press send yourself.
-- **📋 Capabilities** — the Missing Capabilities Registry. Every request
-  Jarvis couldn't fulfill is logged automatically with the reason, what was
-  missing, a suggested fix and difficulty. Asking again raises its priority
-  (1–3× low · 4–10× medium · 10+× high · 20+× critical). Generate a **Weekly
-  Capability Report** there to get a prioritized improvement roadmap built
-  from your real usage.
-- **🧠 Memory** — view, edit or delete everything it remembers.
-- **🛠 Developer** — live audit log of every tool call, plus tool/agent/plugin
-  inspectors.
-- **Custom voices** — Settings → Voice → Speech engine. Built-in browser
-  voices work out of the box; install Piper (`brew install piper-tts` plus a
-  voice `.onnx`) for local neural TTS with real audio-reactive core
-  animations. New engines (XTTS-v2, Kokoro, OpenVoice, voice clones) plug
-  into `backend/app/speech/engines.py` without touching anything else.
-
----
-
-## Troubleshooting
-
-| Problem | Fix |
+| | |
 |---|---|
-| Red dot / "Ollama offline" in the sidebar | Run `ollama serve` in a terminal |
-| "Cannot reach Ollama" error in chat | Same as above, or check Settings → host is `http://localhost:11434` |
-| Model errors / empty replies | `ollama pull llama3.1`, and pick it in Settings |
-| Port 8765 or 5173 already in use | Something else is running there — stop it, or change the port in `backend/run.py` / `frontend/vite.config.ts` |
-| Voice buttons do nothing | Use Chrome (Safari doesn't support the speech API); allow microphone access when prompted |
-| `screen_look` fails | Give your terminal/browser Screen Recording permission in System Settings → Privacy & Security |
-| Context panel shows "permission missing" | Grant your terminal access under System Settings → Privacy & Security → **Automation** (System Events, Safari, Music) — macOS prompts the first time |
-| Browser clicks/JS tools fail | One-time browser setting — Safari: Develop menu → "Allow JavaScript from Apple Events"; Chrome: View → Developer → same option |
-| First reply is slow | Normal — Ollama loads the model into memory on the first message |
+| **OS** | macOS on Apple Silicon (built & tested on an M-series Mac) |
+| **[Ollama](https://ollama.com)** | with at least one model (e.g. `qwen2.5:14b`) |
+| **Python** | 3.11+ |
+| **Node.js** | 18+ |
+| **RAM** | 16 GB minimum, 24 GB+ recommended for larger models |
+
+> 💡 **Model tip:** `qwen2.5:14b` is the sweet spot for tool-calling on a 16–24 GB Mac. The app is fully model-agnostic — switch models anytime in Settings, and even benchmark them on your hardware.
 
 ---
 
-## Desktop app (optional)
+## 🔐 Security & Privacy
 
-A native macOS shell with a menu-bar icon and a ⌘⇧J floating window:
+Jarvis is built to earn your trust:
 
-```bash
-cd desktop
-npm install     # downloads Electron (~100 MB)
-npm start
-```
-
-It auto-starts the backend if needed. To package a `.app`: run
-`npm run build` in `frontend/`, then `npm run package` in `desktop/`.
+- **Runs 100% locally** — the only network calls are the web-search tools *you* invoke.
+- **Permission system** — every action has a risk level. Safe actions run instantly; anything that touches your system (shell, AppleScript, deleting files) asks first, every time.
+- **Audit log** — every tool call, confirmation, and denial is recorded.
+- **You always press send** — messages and emails are only ever *drafted*.
+- **Sandboxed code** — generated code runs with no network and confined file access.
 
 ---
 
-## Project layout
+## 🏗️ Tech Stack
 
-```
-jarvis/
-├── start.sh          ← one-command launcher
-├── .vscode/          ← VS Code run/debug configs (F5)
-├── backend/          ← FastAPI server (Python)
-│   └── app/          llm/ chat/ tools/ agents/ memory/ plugins/ security/ api/
-├── frontend/         ← React + TypeScript UI (Vite)
-├── desktop/          ← Electron shell (tray, floating window)
-├── plugins/          ← drop-in plugins (example included)
-└── docs/             ← architecture & extension guide
-```
+**Backend:** FastAPI · Ollama · SQLite · faster-whisper (STT) · Kokoro (TTS) · Apple Vision (OCR) · pyobjc
+**Frontend:** React · TypeScript · Vite
+**Desktop:** Electron (tray, global hotkeys, floating window)
 
-Your data lives in `~/.jarvis/` (settings.json, jarvis.db, audit.log,
-plugins/). Delete that folder for a factory reset.
+Modular by design — new tools, agents, models, and integrations drop in without touching the core. See [`docs/architecture.md`](docs/architecture.md).
 
-To extend Jarvis — new tools, agents, or plugins — see
-[docs/architecture.md](docs/architecture.md).
+---
+
+## 🗺️ Roadmap
+
+- [ ] Encrypted memory & conversation storage
+- [ ] First-run setup wizard (auto-pulls the right models)
+- [ ] Self-contained `.app` (bundled backend)
+- [ ] Meeting transcription with speaker separation
+- [ ] Git integration in the coding workspace
+- [ ] Community skill & plugin packs
+
+---
+
+## 🤝 Contributing
+
+PRs, ideas, and bug reports are welcome. Jarvis is designed to be extended — writing a new tool or plugin is a few lines of Python (see [`docs/architecture.md`](docs/architecture.md)).
+
+## ⭐ Star it
+
+If Jarvis is useful or just fun to poke at, **drop a star** — it helps other people find it and keeps the project going.
+
+## 📄 License
+
+[MIT](LICENSE) — do whatever you want with it.
+
+<div align="center">
+<br/>
+<b>Built for people who want a real AI assistant — without giving their life to the cloud.</b>
+</div>
