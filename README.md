@@ -17,6 +17,8 @@ Jarvis turns your MacBook into the AI assistant from the movies: talk to it, let
 
 **⭐ If this looks cool, star the repo — it genuinely helps.**
 
+[![Buy Me A Coffee](https://img.shields.io/badge/☕_Buy_me_a_coffee-Support_Jarvis-FFDD00?logo=buymeacoffee&logoColor=black)](https://buymeacoffee.com/salahasfan)
+
 <br/>
 
 ![Jarvis Core](docs/screenshots/core.png)
@@ -230,6 +232,12 @@ PRs, ideas, and bug reports are welcome. Jarvis is designed to be extended — w
 ## ⭐ Star it
 
 If Jarvis is useful or just fun to poke at, **drop a star** — it helps other people find it and keeps the project going.
+
+## ☕ Support
+
+Jarvis is free and built in my spare time. If it saved you time or made you smile, you can [**buy me a coffee**](https://buymeacoffee.com/salahasfan) — it fuels the next late-night feature. Thank you! 🙏
+
+<a href="https://buymeacoffee.com/salahasfan"><img src="https://img.shields.io/badge/☕_Buy_me_a_coffee-salahasfan-FFDD00?logo=buymeacoffee&logoColor=black&style=for-the-badge" alt="Buy me a coffee"></a>
 
 ## 📄 License
 
