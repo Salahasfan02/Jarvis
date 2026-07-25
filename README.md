@@ -243,7 +243,4 @@ Jarvis is free and built in my spare time. If it saved you time or made you smil
 
 [PolyForm Noncommercial 1.0.0](LICENSE) — **free for any noncommercial use**: personal projects, hobby, research, education, and nonprofits. You can use, modify, and share it freely — just not sell it or use it commercially. Commercial use requires a separate license from the author.
 
-<div align="center">
-<br/>
-<b>Built for people who want a real AI assistant — without giving their life to the cloud.</b>
-</div>
+
