@@ -8,9 +8,9 @@
 
 Jarvis turns your MacBook into the AI assistant from the movies: talk to it, let it see your screen and camera, control your apps, remember everything about you, and get real work done — all powered by local LLMs through [Ollama](https://ollama.com). Nothing ever leaves your Mac.
 
-[![macOS](https://img.shields.io/badge/macOS-Apple_Silicon-000000?logo=apple&logoColor=white)](#requirements)
-[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](#requirements)
-[![TypeScript](https://img.shields.io/badge/TypeScript-React-3178C6?logo=typescript&logoColor=white)](#tech-stack)
+[![macOS](https://img.shields.io/badge/macOS-Apple_Silicon-000000?logo=apple&logoColor=white)](#-requirements)
+[![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)](#-requirements)
+[![TypeScript](https://img.shields.io/badge/TypeScript-React-3178C6?logo=typescript&logoColor=white)](#️-tech-stack)
 [![Ollama](https://img.shields.io/badge/LLM-Ollama-black)](https://ollama.com)
 [![Local & Private](https://img.shields.io/badge/100%25-Local_%26_Private-00ff66)](#-why-jarvis)
 [![License: Noncommercial](https://img.shields.io/badge/License-Noncommercial-green.svg)](LICENSE)
@@ -128,29 +128,51 @@ Hit **⌥Space** from *any* app to summon a floating command bar — ask about w
 
 ## 🚀 Quick Start
 
+> ⚠️ **Check your Python first.** macOS ships with Python 3.9, and the backend **cannot install** on it — `onnxruntime` publishes no 3.9 wheel, so `pip` fails with `ResolutionImpossible`. Step 1 below is not optional.
+
 ```bash
-# 1. Install Ollama and pull a model (https://ollama.com/download)
+# 1. Python 3.11+  —  macOS's built-in python3 is 3.9 and will not work
+python3 --version                 # 3.11 or newer? skip to step 2
+brew install python@3.12          # otherwise, install a supported one
+
+# 2. Install Ollama and pull a model (https://ollama.com/download)
 ollama pull qwen2.5:14b
 
-# 2. Clone
+# 3. Clone
 git clone https://github.com/Salahasfan02/Jarvis.git
 cd Jarvis
 
-# 3. Run everything with one command
+# 4. Build the backend environment with an explicit 3.11+ interpreter.
+#    (start.sh calls a bare `python3`, which on a stock Mac is 3.9 — so create
+#    the venv yourself and start.sh will use it as-is.)
+/opt/homebrew/bin/python3.12 -m venv backend/.venv
+
+# 5. Run everything with one command
 chmod +x start.sh && ./start.sh
 ```
 
-That's it — your browser opens at **http://localhost:5173** and Jarvis is live. Press **Ctrl+C** (or `./stop.sh`) to turn it off. Nothing auto-starts; it only runs when you start it.
+Your browser opens at **http://localhost:5173** and Jarvis is live. Press **Ctrl+C** (or `./stop.sh`) to turn it off. Nothing auto-starts; it only runs when you start it.
+
+> 🔧 **First launch — set your model.** The dashboard will say `llama3.1`, which is the built-in default in `backend/app/config.py` and is *not* the model you pulled above. Open **Settings → Model** and select `qwen2.5:14b`, or your first message will fail against a model you don't have. (Alternatively, `ollama pull llama3.1` and skip the switch.)
+
+> 🔐 **macOS will ask for permissions.** The first time Jarvis reads your screen, uses the camera, or drives another app, macOS prompts for **Screen Recording**, **Camera**, **Microphone**, and **Accessibility**. Grant them in System Settings → Privacy & Security. Screen OCR and app automation silently return nothing until you do.
 
 <details>
 <summary><b>Prefer the native desktop app?</b></summary>
 
+The Electron shell is a **wrapper around the running stack**, not a standalone build — in dev it loads the Vite UI from `http://localhost:5173`, and it launches the backend using `backend/.venv`. So bring the stack up first:
+
 ```bash
-cd desktop
+./start.sh          # terminal 1 — leave this running
+
+cd desktop          # terminal 2
 npm install
-npm start          # or: npm run package  → builds Jarvis.app
+npm start           # or: npm run package  → builds Jarvis.app
 ```
+
 The desktop app adds a menu-bar icon, the **⌥Space** quick command, a **⌘⇧J** floating window, and "Open at Login."
+
+Note that `npm run package` records the path to *this clone's* backend in `~/.jarvis/backend_path`. The resulting `Jarvis.app` still needs this repo on disk — a fully self-contained bundle is on the [roadmap](#️-roadmap).
 </details>
 
 <details>
@@ -160,21 +182,71 @@ The desktop app adds a menu-bar icon, the **⌥Space** quick command, a **⌘⇧
 # Terminal 1 — Ollama
 ollama serve
 
-# Terminal 2 — backend
-cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
+# Terminal 2 — backend   (use an explicit 3.11+ interpreter, not bare `python3`)
+cd backend && /opt/homebrew/bin/python3.12 -m venv .venv && .venv/bin/pip install -r requirements.txt
 .venv/bin/python run.py            # → http://127.0.0.1:8765
 
 # Terminal 3 — UI
 cd frontend && npm install && npm run dev   # → http://localhost:5173
 ```
+
 </details>
 
 ### Level up (optional, all local)
+
 ```bash
 ollama pull nomic-embed-text   # semantic memory + smarter agent routing
 ollama pull llava              # camera & screen vision
 ```
+
 Then open **Settings** to enable them, download the offline **Whisper** and human **Kokoro** voice models, pick your theme, and set your wake word.
+
+---
+
+## 🔧 Troubleshooting
+
+<details>
+<summary><b><code>ResolutionImpossible</code> / "no matching distributions available for onnxruntime"</b></summary>
+
+You built the environment with Python 3.9 (macOS's default). Delete it and rebuild with 3.11+:
+
+```bash
+rm -rf backend/.venv
+brew install python@3.12
+/opt/homebrew/bin/python3.12 -m venv backend/.venv
+./start.sh
+```
+</details>
+
+<details>
+<summary><b><code>ModuleNotFoundError: No module named 'fastapi'</code> (or similar) on every run</b></summary>
+
+You have a **half-built venv**. If the dependency install fails partway, the empty `backend/.venv` directory is left behind — and because `start.sh` only installs when that directory is *missing*, every later run skips the install and launches against an empty environment. The fix is the same as above: `rm -rf backend/.venv`, then recreate it with a 3.11+ interpreter.
+</details>
+
+<details>
+<summary><b>First message fails with a model error</b></summary>
+
+The active model doesn't exist locally. Run `ollama list` to see what you actually have, then pick one of those in **Settings → Model**. The out-of-the-box default is `llama3.1`.
+</details>
+
+<details>
+<summary><b>The desktop app opens a blank window</b></summary>
+
+In dev mode it loads `http://localhost:5173`, so the Vite dev server has to be running — start the stack with `./start.sh` before `npm start`.
+</details>
+
+<details>
+<summary><b>Ctrl+C didn't stop everything</b></summary>
+
+`./start.sh` cleans up when you interrupt it from the terminal it's running in. If you launched it detached (`nohup`, `&`, or from another script), the backend and UI survive — use `./stop.sh`, which kills by port instead. Add `--all` to stop Ollama too.
+</details>
+
+<details>
+<summary><b>Screen reading, camera, or app automation does nothing</b></summary>
+
+Missing macOS permissions. Open System Settings → Privacy & Security and grant **Screen Recording**, **Camera**, **Microphone**, and **Accessibility** to your terminal (or to Jarvis.app if you packaged it), then restart Jarvis.
+</details>
 
 ---
 
@@ -184,9 +256,10 @@ Then open **Settings** to enable them, download the offline **Whisper** and huma
 |---|---|
 | **OS** | macOS on Apple Silicon (built & tested on an M-series Mac) |
 | **[Ollama](https://ollama.com)** | with at least one model (e.g. `qwen2.5:14b`) |
-| **Python** | 3.11+ |
+| **Python** | **3.11+** — macOS's built-in `python3` is 3.9 and will not install the backend. `brew install python@3.12` |
 | **Node.js** | 18+ |
 | **RAM** | 16 GB minimum, 24 GB+ recommended for larger models |
+| **Permissions** | Screen Recording, Camera, Microphone, Accessibility (prompted on first use) |
 
 > 💡 **Model tip:** `qwen2.5:14b` is the sweet spot for tool-calling on a 16–24 GB Mac. The app is fully model-agnostic — switch models anytime in Settings, and even benchmark them on your hardware.
 
@@ -218,6 +291,7 @@ Modular by design — new tools, agents, models, and integrations drop in withou
 
 - [ ] Encrypted memory & conversation storage
 - [ ] First-run setup wizard (auto-pulls the right models)
+- [ ] Version check + explicit interpreter selection in `start.sh`
 - [ ] Self-contained `.app` (bundled backend)
 - [ ] Meeting transcription with speaker separation
 - [ ] Git integration in the coding workspace
@@ -242,5 +316,3 @@ Jarvis is free and built in my spare time. If it saved you time or made you smil
 ## 📄 License
 
 [PolyForm Noncommercial 1.0.0](LICENSE) — **free for any noncommercial use**: personal projects, hobby, research, education, and nonprofits. You can use, modify, and share it freely — just not sell it or use it commercially. Commercial use requires a separate license from the author.
-
-
